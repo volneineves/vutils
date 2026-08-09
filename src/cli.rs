@@ -632,8 +632,9 @@ pub enum KeywordCaseArg {
 
 #[derive(Debug, Subcommand)]
 pub enum TextCommand {
+    #[command(about = "Convert text to camelCase, PascalCase, snake_case, and other styles")]
     Case {
-        #[arg(value_enum)]
+        #[arg(value_enum, help = "Target case style")]
         style: CaseArg,
         #[command(flatten)]
         input: InputOptions,
@@ -661,11 +662,17 @@ pub enum TextCommand {
 }
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum CaseArg {
+    #[value(alias = "camel-case", alias = "camelcase")]
     Camel,
+    #[value(alias = "pascal-case", alias = "pascalcase")]
     Pascal,
+    #[value(alias = "snake-case", alias = "snakecase")]
     Snake,
+    #[value(alias = "kebab-case", alias = "kebabcase")]
     Kebab,
+    #[value(alias = "constant-case", alias = "screaming-snake")]
     Constant,
+    #[value(alias = "title-case", alias = "titlecase")]
     Title,
 }
 
@@ -852,23 +859,43 @@ pub enum CertCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum TimeCommand {
+    #[command(about = "Show the current local time, or a Unix timestamp with --unix")]
     Now {
-        #[arg(long, value_enum, default_value_t = TimeUnitArg::Seconds)]
-        unit: TimeUnitArg,
+        #[arg(long, help = "Return a Unix timestamp instead of RFC 3339")]
+        unix: bool,
+        #[arg(
+            long,
+            value_enum,
+            requires = "unix",
+            help = "Unix timestamp unit (defaults to seconds)"
+        )]
+        unit: Option<TimeUnitArg>,
+        #[arg(
+            long,
+            conflicts_with = "unix",
+            help = "Format the time in UTC instead of the machine's local timezone"
+        )]
+        utc: bool,
     },
+    #[command(about = "Convert a Unix timestamp to local RFC 3339 time")]
     ToIso {
         value: i64,
         #[arg(long, value_enum, default_value_t = TimeUnitArg::Seconds)]
         unit: TimeUnitArg,
+        #[arg(
+            long,
+            help = "Format the result in UTC instead of the machine's local timezone"
+        )]
+        utc: bool,
     },
+    #[command(about = "Convert an RFC 3339 time with an explicit offset to Unix time")]
     ToUnix {
         value: String,
         #[arg(long, value_enum, default_value_t = TimeUnitArg::Seconds)]
         unit: TimeUnitArg,
     },
-    Duration {
-        value: String,
-    },
+    #[command(about = "Parse a human-readable duration into milliseconds")]
+    Duration { value: String },
 }
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum TimeUnitArg {
@@ -877,15 +904,27 @@ pub enum TimeUnitArg {
 }
 #[derive(Debug, Subcommand)]
 pub enum CronCommand {
+    #[command(about = "List upcoming occurrences in the machine's local timezone")]
     Next {
         expression: String,
         #[arg(short, long, default_value_t = 5)]
         count: usize,
+        #[arg(
+            long,
+            help = "Return occurrences in UTC instead of the machine's local timezone"
+        )]
+        utc: bool,
     },
+    #[command(about = "Explain a schedule and list upcoming local occurrences")]
     Explain {
         expression: String,
         #[arg(short, long, default_value_t = 5)]
         count: usize,
+        #[arg(
+            long,
+            help = "Return occurrences in UTC instead of the machine's local timezone"
+        )]
+        utc: bool,
     },
 }
 #[derive(Debug, Subcommand)]

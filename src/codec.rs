@@ -78,7 +78,7 @@ pub fn hex_decode(input: &str) -> Result<Vec<u8>> {
     {
         normalized = without_prefix.to_owned();
     }
-    if normalized.len() % 2 != 0 {
+    if !normalized.len().is_multiple_of(2) {
         return Err(VutilsError::InvalidInput(
             "hex input must contain an even number of digits".into(),
         ));

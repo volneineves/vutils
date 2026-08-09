@@ -183,3 +183,53 @@ fn jwt_decode_warns_that_signature_is_unverified() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["verified"], false);
 }
+
+#[test]
+fn converts_common_case_styles_and_aliases() {
+    for (style, input, expected) in [
+        ("camel", "hello world", "helloWorld\n"),
+        ("snake-case", "helloWorld", "hello_world\n"),
+        ("pascalcase", "hello world", "HelloWorld\n"),
+    ] {
+        let output = vutils()
+            .args(["text", "case", style, input])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+    }
+}
+
+#[test]
+fn time_is_local_by_default_and_utc_on_request() {
+    let local = vutils()
+        .args(["time", "to-iso", "1700000000"])
+        .output()
+        .unwrap();
+    assert!(local.status.success());
+    let local_value = String::from_utf8(local.stdout).unwrap();
+    let parsed_local = chrono::DateTime::parse_from_rfc3339(local_value.trim()).unwrap();
+    let expected_local = chrono::DateTime::from_timestamp(1_700_000_000, 0)
+        .unwrap()
+        .with_timezone(&chrono::Local);
+    assert_eq!(parsed_local.offset(), expected_local.offset());
+
+    let utc = vutils()
+        .args(["time", "to-iso", "1700000000", "--utc"])
+        .output()
+        .unwrap();
+    assert!(utc.status.success());
+    assert!(String::from_utf8(utc.stdout).unwrap().trim().ends_with('Z'));
+
+    let now = vutils().args(["time", "now"]).output().unwrap();
+    assert!(now.status.success());
+    chrono::DateTime::parse_from_rfc3339(String::from_utf8(now.stdout).unwrap().trim()).unwrap();
+
+    let unix = vutils().args(["time", "now", "--unix"]).output().unwrap();
+    assert!(unix.status.success());
+    String::from_utf8(unix.stdout)
+        .unwrap()
+        .trim()
+        .parse::<i64>()
+        .unwrap();
+}

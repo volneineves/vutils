@@ -279,9 +279,17 @@ fn dispatch(command: Command) -> Result<Outcome> {
         }
         Command::Time(command) => dispatch_time(command),
         Command::Cron(command) => match command {
-            CronCommand::Next { expression, count }
-            | CronCommand::Explain { expression, count } => text_out(
-                time::explain_cron(&expression, count)?,
+            CronCommand::Next {
+                expression,
+                count,
+                utc,
+            }
+            | CronCommand::Explain {
+                expression,
+                count,
+                utc,
+            } => text_out(
+                time::explain_cron(&expression, count, map_output_timezone(utc))?,
                 InputOptions::default(),
             ),
         },
@@ -795,12 +803,16 @@ fn dispatch_totp(command: TotpCommand) -> Result<Outcome> {
 
 fn dispatch_time(command: TimeCommand) -> Result<Outcome> {
     match command {
-        TimeCommand::Now { unit } => text_out(
-            time::now(map_time_unit(unit)).to_string(),
+        TimeCommand::Now { unix, unit, utc } => text_out(
+            if unix {
+                time::now(map_time_unit(unit.unwrap_or(TimeUnitArg::Seconds))).to_string()
+            } else {
+                time::now_rfc3339(map_output_timezone(utc))
+            },
             InputOptions::default(),
         ),
-        TimeCommand::ToIso { value, unit } => text_out(
-            time::unix_to_rfc3339(value, map_time_unit(unit))?,
+        TimeCommand::ToIso { value, unit, utc } => text_out(
+            time::unix_to_rfc3339(value, map_time_unit(unit), map_output_timezone(utc))?,
             InputOptions::default(),
         ),
         TimeCommand::ToUnix { value, unit } => text_out(
@@ -1129,5 +1141,13 @@ fn map_time_unit(value: TimeUnitArg) -> time::TimeUnit {
     match value {
         TimeUnitArg::Seconds => time::TimeUnit::Seconds,
         TimeUnitArg::Milliseconds => time::TimeUnit::Milliseconds,
+    }
+}
+
+fn map_output_timezone(utc: bool) -> time::OutputTimeZone {
+    if utc {
+        time::OutputTimeZone::Utc
+    } else {
+        time::OutputTimeZone::Local
     }
 }

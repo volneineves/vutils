@@ -116,7 +116,7 @@ pub fn generate_object_id() -> String {
 }
 
 pub fn generate_ulid() -> String {
-    ulid::Ulid::new().to_string()
+    ulid::Ulid::generate().to_string()
 }
 
 fn generate_v2(options: &UuidOptions<'_>, node: [u8; 6]) -> Result<Uuid> {

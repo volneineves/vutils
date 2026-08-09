@@ -455,10 +455,10 @@ fn extract_sql_metadata(
         if !tables.contains(&table) {
             tables.push(table.clone());
         }
-        if let Some(alias) = captures.get(2).map(|value| value.as_str()) {
-            if !reserved.contains(&alias.to_ascii_lowercase().as_str()) {
-                aliases.insert(alias.to_owned(), table);
-            }
+        if let Some(alias) = captures.get(2).map(|value| value.as_str())
+            && !reserved.contains(&alias.to_ascii_lowercase().as_str())
+        {
+            aliases.insert(alias.to_owned(), table);
         }
     }
     Ok((tables, aliases))

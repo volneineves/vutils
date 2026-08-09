@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-09
+
+### Added
+
+- Discoverable aliases for camelCase, PascalCase, snake_case, kebab-case, CONSTANT_CASE, and Title Case conversion.
+- Explicit `--utc` output for timestamp and cron formatting.
+- Automated GitHub releases for Linux, Windows, Intel/Apple Silicon macOS, DEB, and RPM artifacts with SHA-256 checksums.
+- Installation instructions that use prebuilt artifacts and do not require Rust or Cargo.
+
+### Changed
+
+- `time now`, `time to-iso`, and cron occurrences now use the machine's local timezone by default.
+- Unix output from `time now` is now requested explicitly with `--unix`; Unix timestamps remain timezone-independent.
+- Direct dependencies were upgraded to their newest Rust 1.88-compatible releases and the MSRV is now Rust 1.88.
+
 ## [0.1.0] - 2026-08-09
 
 ### Added
@@ -14,4 +29,3 @@ All notable changes to this project are documented here. The format follows Keep
 - Rust, Kotlin, C#, and TypeScript type generation from JSON examples.
 - Offline HTTP/cURL parsing and rendering plus SQL formatting, inspection, and parameterized statement generation.
 - Hash, HMAC, Argon2, bcrypt, TOTP, JWT inspection, checksums, PEM/X.509 inspection, and QR generation.
-

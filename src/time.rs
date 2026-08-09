@@ -3,7 +3,7 @@ use std::{
     str::FromStr as _,
 };
 
-use chrono::{DateTime, SecondsFormat, Utc};
+use chrono::{DateTime, Local, SecondsFormat, Utc};
 use ipnet::IpNet;
 use semver::Version;
 
@@ -15,6 +15,12 @@ pub enum TimeUnit {
     Milliseconds,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputTimeZone {
+    Local,
+    Utc,
+}
+
 pub fn now(unit: TimeUnit) -> i64 {
     let timestamp = Utc::now();
     match unit {
@@ -23,13 +29,17 @@ pub fn now(unit: TimeUnit) -> i64 {
     }
 }
 
-pub fn unix_to_rfc3339(value: i64, unit: TimeUnit) -> Result<String> {
+pub fn now_rfc3339(timezone: OutputTimeZone) -> String {
+    format_datetime(Utc::now(), timezone)
+}
+
+pub fn unix_to_rfc3339(value: i64, unit: TimeUnit, timezone: OutputTimeZone) -> Result<String> {
     let timestamp = match unit {
         TimeUnit::Seconds => DateTime::from_timestamp(value, 0),
         TimeUnit::Milliseconds => DateTime::from_timestamp_millis(value),
     }
     .ok_or_else(|| VutilsError::InvalidInput("timestamp is out of range".into()))?;
-    Ok(timestamp.to_rfc3339_opts(SecondsFormat::Millis, true))
+    Ok(format_datetime(timestamp, timezone))
 }
 
 pub fn rfc3339_to_unix(value: &str, unit: TimeUnit) -> Result<i64> {
@@ -88,7 +98,7 @@ pub fn parse_duration(input: &str) -> Result<u128> {
     Ok(total)
 }
 
-pub fn explain_cron(expression: &str, count: usize) -> Result<String> {
+pub fn explain_cron(expression: &str, count: usize, timezone: OutputTimeZone) -> Result<String> {
     if !(1..=10_000).contains(&count) {
         return Err(VutilsError::InvalidInput(
             "cron occurrence count must be between 1 and 10000".into(),
@@ -96,17 +106,39 @@ pub fn explain_cron(expression: &str, count: usize) -> Result<String> {
     }
     let schedule = cron::Schedule::from_str(expression)
         .map_err(|error| VutilsError::InvalidInput(format!("invalid cron expression: {error}")))?;
-    let next: Vec<_> = schedule
-        .upcoming(Utc)
-        .take(count)
-        .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true))
-        .collect();
+    let (timezone_name, next): (_, Vec<_>) = match timezone {
+        OutputTimeZone::Local => (
+            format!("local ({})", Local::now().offset()),
+            schedule
+                .upcoming(Local)
+                .take(count)
+                .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true))
+                .collect(),
+        ),
+        OutputTimeZone::Utc => (
+            "UTC".to_owned(),
+            schedule
+                .upcoming(Utc)
+                .take(count)
+                .map(|value| value.to_rfc3339_opts(SecondsFormat::Secs, true))
+                .collect(),
+        ),
+    };
     serde_json::to_string_pretty(&serde_json::json!({
         "expression": expression,
-        "timezone": "UTC",
+        "timezone": timezone_name,
         "next": next
     }))
     .map_err(|error| VutilsError::Message(error.to_string()))
+}
+
+fn format_datetime(timestamp: DateTime<Utc>, timezone: OutputTimeZone) -> String {
+    match timezone {
+        OutputTimeZone::Local => timestamp
+            .with_timezone(&Local)
+            .to_rfc3339_opts(SecondsFormat::Millis, true),
+        OutputTimeZone::Utc => timestamp.to_rfc3339_opts(SecondsFormat::Millis, true),
+    }
 }
 
 pub fn chmod_encode(symbolic: &str) -> Result<String> {
@@ -282,7 +314,7 @@ mod tests {
         let value = 1_700_000_000_i64;
         assert_eq!(
             rfc3339_to_unix(
-                &unix_to_rfc3339(value, TimeUnit::Seconds).unwrap(),
+                &unix_to_rfc3339(value, TimeUnit::Seconds, OutputTimeZone::Utc).unwrap(),
                 TimeUnit::Seconds
             )
             .unwrap(),
@@ -305,5 +337,34 @@ mod tests {
     #[test]
     fn semver_bump_rejects_component_overflow() {
         assert!(semver_bump("18446744073709551615.0.0", "major").is_err());
+    }
+
+    #[test]
+    fn formatted_times_are_local_by_default_and_utc_when_requested() {
+        let value = 1_700_000_000_i64;
+        let timestamp = DateTime::from_timestamp(value, 0).unwrap();
+        assert_eq!(
+            unix_to_rfc3339(value, TimeUnit::Seconds, OutputTimeZone::Local).unwrap(),
+            timestamp
+                .with_timezone(&Local)
+                .to_rfc3339_opts(SecondsFormat::Millis, true)
+        );
+        assert!(
+            unix_to_rfc3339(value, TimeUnit::Seconds, OutputTimeZone::Utc)
+                .unwrap()
+                .ends_with('Z')
+        );
+    }
+
+    #[test]
+    fn cron_reports_the_selected_timezone() {
+        let utc = explain_cron("0 0 * * * * *", 1, OutputTimeZone::Utc).unwrap();
+        let utc: serde_json::Value = serde_json::from_str(&utc).unwrap();
+        assert_eq!(utc["timezone"], "UTC");
+        assert!(utc["next"][0].as_str().unwrap().ends_with('Z'));
+
+        let local = explain_cron("0 0 * * * * *", 1, OutputTimeZone::Local).unwrap();
+        let local: serde_json::Value = serde_json::from_str(&local).unwrap();
+        assert!(local["timezone"].as_str().unwrap().starts_with("local ("));
     }
 }

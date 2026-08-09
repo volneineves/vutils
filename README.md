@@ -2,13 +2,73 @@
 
 `vutils` is a fast, offline, pipeline-friendly developer toolkit written in Rust. It keeps routine transformations on your machine: no HTTP client, database driver, telemetry, remote lookup, or shell execution is included.
 
-## Install
+## Install without Rust or Cargo
+
+Download the artifact for your system from [GitHub Releases](https://github.com/volneineves/vutils/releases). Every release includes `SHA256SUMS`; verify the downloaded file before installing it.
+
+### Debian and Ubuntu
 
 ```bash
-cargo install --path .
+sudo apt install ./vutils_<version>_amd64.deb
+vutils --version
 ```
 
-Rust 1.85 or newer is required. The finished binary runs without a network connection.
+### Fedora, RHEL, Rocky Linux, and openSUSE
+
+```bash
+sudo dnf install ./vutils-<version>-1.x86_64.rpm
+vutils --version
+```
+
+On systems without `dnf`, use the native RPM package manager, such as `sudo rpm -U ./vutils-<version>-1.x86_64.rpm`.
+
+### Portable Linux binary
+
+```bash
+tar -xzf vutils-linux-x86_64.tar.gz
+sudo install -m 0755 vutils /usr/local/bin/vutils
+vutils --version
+```
+
+The raw `vutils-linux-x86_64` asset is also available; make it executable with `chmod +x` before placing it on `PATH`.
+
+### macOS
+
+Choose `vutils-macos-aarch64.tar.gz` for Apple Silicon or `vutils-macos-x86_64.tar.gz` for Intel Macs.
+
+```bash
+tar -xzf vutils-macos-aarch64.tar.gz
+sudo install -m 0755 vutils /usr/local/bin/vutils
+vutils --version
+```
+
+The binaries are not currently signed with an Apple Developer certificate, so macOS may request explicit approval before the first execution.
+
+### Windows
+
+Download `vutils-windows-x86_64.zip`, extract `vutils.exe`, and place it in a directory included in the user `PATH`. A PowerShell-only user installation can use:
+
+```powershell
+$install = "$env:LOCALAPPDATA\Programs\vutils"
+New-Item -ItemType Directory -Force $install | Out-Null
+Copy-Item .\vutils.exe "$install\vutils.exe"
+$path = [Environment]::GetEnvironmentVariable("Path", "User")
+if (($path -split ';') -notcontains $install) {
+  [Environment]::SetEnvironmentVariable("Path", "$path;$install", "User")
+}
+```
+
+Open a new terminal and run `vutils --version`.
+
+### Verify a download
+
+```bash
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+On Windows, compare `Get-FileHash .\vutils-windows-x86_64.zip -Algorithm SHA256` with the corresponding entry in `SHA256SUMS`.
+
+Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust, Cargo, or a network connection.
 
 ## Input and output
 
@@ -75,6 +135,19 @@ vutils code types --lang kotlin --name ApiResponse --input response.json
 
 Generated types are inferred from examples, not schemas. Missing fields become optional; ambiguous values use the target language's safe dynamic type.
 
+## Text case conversion
+
+```bash
+vutils text case camel 'customer account'       # customerAccount
+vutils text case pascal 'customer account'      # CustomerAccount
+vutils text case snake 'customerAccount'        # customer_account
+vutils text case kebab 'customerAccount'        # customer-account
+vutils text case constant 'customer account'    # CUSTOMER_ACCOUNT
+vutils text case title 'customer account'       # Customer Account
+```
+
+The descriptive aliases `camel-case`, `camelcase`, `pascal-case`, `pascalcase`, `snake-case`, and `snakecase` are also accepted.
+
 ## cURL and HTTP authoring
 
 No request is sent. The commands only parse or render text.
@@ -125,6 +198,21 @@ vutils totp code --secret-file totp.secret
 
 JWT decoding never verifies a signature and emits a warning on stderr.
 
+## Time and cron
+
+Formatted dates use the machine's local timezone by default. Pass `--utc` when UTC output is required. Unix timestamps are timezone-independent.
+
+```bash
+vutils time now
+vutils time now --utc
+vutils time now --unix
+vutils time now --unix --unit milliseconds
+vutils time to-iso 1700000000
+vutils time to-iso 1700000000 --utc
+vutils cron next '0 0 9 * * MON-FRI *'
+vutils cron next '0 0 9 * * MON-FRI *' --utc
+```
+
 ## Exit codes
 
 - `0`: successful operation or positive validation.
@@ -133,13 +221,20 @@ JWT decoding never verifies a signature and emits a warning on stderr.
 
 ## Development
 
+Building from source is optional and intended for contributors:
+
 ```bash
+cargo install --path .
 cargo fmt --all -- --check
 cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 cargo build --release
 cargo package
 ```
+
+## Automated releases
+
+Every push to `main` creates a uniquely versioned GitHub prerelease named `v<crate-version>-build.<run>.<attempt>`. Pushing a `v*` tag creates a stable release. Both paths build and attach Linux, Windows, and macOS binaries, Debian and RPM packages, plus `SHA256SUMS`.
 
 ## License
 

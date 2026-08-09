@@ -11,7 +11,7 @@ use argon2::{
 };
 use base64::Engine as _;
 use data_encoding::BASE32_NOPAD;
-use hmac::{Hmac, Mac as _};
+use hmac::{Hmac, KeyInit as _, Mac as _};
 use serde::Serialize;
 use sha2::{Digest as _, Sha256, Sha512};
 use walkdir::WalkDir;

@@ -279,23 +279,23 @@ pub fn request_from_har(input: &str, entry: Option<usize>) -> Result<HttpRequest
             }
         }
     }
-    if let Some(post_data) = request.get("postData") {
-        if let Some(text) = post_data.get("text").and_then(serde_json::Value::as_str) {
-            spec.body = Some(
-                if post_data
-                    .get("mimeType")
-                    .and_then(serde_json::Value::as_str)
-                    .is_some_and(|mime| mime.contains("json"))
-                {
-                    HttpBody::Json(
-                        serde_json::from_str(text)
-                            .unwrap_or_else(|_| serde_json::Value::String(text.into())),
-                    )
-                } else {
-                    HttpBody::Text(text.into())
-                },
-            );
-        }
+    if let Some(post_data) = request.get("postData")
+        && let Some(text) = post_data.get("text").and_then(serde_json::Value::as_str)
+    {
+        spec.body = Some(
+            if post_data
+                .get("mimeType")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|mime| mime.contains("json"))
+            {
+                HttpBody::Json(
+                    serde_json::from_str(text)
+                        .unwrap_or_else(|_| serde_json::Value::String(text.into())),
+                )
+            } else {
+                HttpBody::Text(text.into())
+            },
+        );
     }
     Ok(spec)
 }
