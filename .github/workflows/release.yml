@@ -24,10 +24,6 @@ jobs:
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary: target/x86_64-unknown-linux-gnu/release/vutils
-          - name: windows-x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            binary: target/x86_64-pc-windows-msvc/release/vutils.exe
           - name: macos-x86_64
             os: macos-15-intel
             target: x86_64-apple-darwin
@@ -44,8 +40,7 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Build release binary
         run: cargo build --locked --release --target ${{ matrix.target }}
-      - name: Package Unix archive
-        if: runner.os != 'Windows'
+      - name: Package archive
         shell: bash
         run: |
           set -euo pipefail
@@ -55,16 +50,6 @@ jobs:
           cp "${{ matrix.binary }}" "dist/vutils-${{ matrix.name }}"
           tar -C dist/stage -czf "dist/vutils-${{ matrix.name }}.tar.gz" .
           rm -rf dist/stage
-      - name: Package Windows archive
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force -Path dist/stage | Out-Null
-          Copy-Item "${{ matrix.binary }}" dist/stage/vutils.exe
-          Copy-Item README.md, LICENSE-MIT, LICENSE-APACHE dist/stage/
-          Copy-Item "${{ matrix.binary }}" dist/vutils-windows-x86_64.exe
-          Compress-Archive -Path dist/stage/* -DestinationPath dist/vutils-windows-x86_64.zip
-          Remove-Item -Recurse -Force dist/stage
       - name: Install Linux package tools
         if: runner.os == 'Linux'
         run: cargo install --locked cargo-deb@3.7.0 cargo-generate-rpm@0.21.0
@@ -76,7 +61,10 @@ jobs:
           version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')"
           cargo deb --no-build --target "${{ matrix.target }}" --output "dist/vutils_${version}_amd64.deb"
           cargo generate-rpm --target "${{ matrix.target }}"
-          cp target/${{ matrix.target }}/generate-rpm/*.rpm dist/
+          rpm="target/${{ matrix.target }}/generate-rpm/vutils-${version}-1.x86_64.rpm"
+          cp "$rpm" dist/
+          cp "dist/vutils_${version}_amd64.deb" dist/vutils-latest-amd64.deb
+          cp "$rpm" dist/vutils-latest-x86_64.rpm
       - uses: actions/upload-artifact@v7
         with:
           name: release-${{ matrix.name }}

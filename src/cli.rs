@@ -32,8 +32,17 @@ pub enum Command {
     Gen(GenCommand),
     #[command(about = "Generate and validate Brazilian development fixtures")]
     Br(BrArgs),
+    #[command(subcommand, about = "Manage persistent per-user defaults")]
+    Config(ConfigCommand),
     #[command(subcommand, about = "Encode and decode Base64 data")]
     Base64(Base64Command),
+    #[command(
+        subcommand,
+        name = "binary",
+        alias = "bin",
+        about = "Encode bytes as bits or decode bits back to bytes"
+    )]
+    Binary(BinaryCommand),
     #[command(subcommand, about = "Encode and decode hexadecimal data")]
     Hex(HexCommand),
     #[command(subcommand, about = "Encode, decode, and inspect URLs")]
@@ -63,17 +72,9 @@ pub enum Command {
         about = "Generate strongly typed models from JSON examples"
     )]
     Code(CodeCommand),
-    #[command(
-        subcommand,
-        about = "Build and render HTTP requests without sending them"
-    )]
-    Http(HttpCommand),
-    #[command(
-        subcommand,
-        about = "Parse, format, explain, and convert static cURL commands"
-    )]
+    #[command(subcommand, about = "Format static cURL commands")]
     Curl(CurlCommand),
-    #[command(subcommand, about = "Format, inspect, and safely generate SQL")]
+    #[command(subcommand, about = "Format SQL")]
     Sql(SqlCommand),
     #[command(subcommand, about = "Transform and compare text")]
     Text(TextCommand),
@@ -182,10 +183,9 @@ pub struct EncryptionArgs {
     #[arg(
         long = "alg",
         value_enum,
-        default_value_t = EncryptionAlgorithmArg::XChaCha20Poly1305,
-        help = "Encryption algorithm; SHA algorithms are hashes and are not reversible"
+        help = "Encryption algorithm; SHA algorithms are hashes and are not reversible (config: crypto.algorithm; built-in: xchacha20-poly1305)"
     )]
-    pub algorithm: EncryptionAlgorithmArg,
+    pub algorithm: Option<EncryptionAlgorithmArg>,
     #[command(flatten)]
     pub password: PasswordOptions,
     #[command(flatten)]
@@ -216,12 +216,21 @@ pub enum EncryptionAlgorithmArg {
 
 #[derive(Debug, Args)]
 pub struct UuidArgs {
-    #[arg(short, long, value_enum, default_value_t = UuidVersionArg::V7)]
-    pub version: UuidVersionArg,
+    #[arg(
+        short,
+        long,
+        value_enum,
+        help = "UUID version (config: uuid.version; built-in: v7)"
+    )]
+    pub version: Option<UuidVersionArg>,
     #[arg(short, long, default_value_t = 1)]
     pub count: u32,
-    #[arg(long, value_enum, default_value_t = UuidFormatArg::Hyphenated)]
-    pub format: UuidFormatArg,
+    #[arg(
+        long,
+        value_enum,
+        help = "Output format (config: uuid.format; built-in: hyphenated)"
+    )]
+    pub format: Option<UuidFormatArg>,
     #[arg(long)]
     pub namespace: Option<String>,
     #[arg(long)]
@@ -259,6 +268,20 @@ pub enum DceDomainArg {
     Person,
     Group,
     Organization,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ConfigCommand {
+    #[command(about = "Print the active config file path")]
+    Path,
+    #[command(about = "List effective defaults")]
+    List,
+    #[command(about = "Print one effective config value")]
+    Get { key: String },
+    #[command(about = "Persist a validated config value")]
+    Set { key: String, value: String },
+    #[command(about = "Remove a persisted value and restore its built-in default")]
+    Unset { key: String },
 }
 
 #[derive(Debug, Subcommand)]
@@ -376,6 +399,17 @@ pub enum Base64Command {
         #[arg(long)]
         no_padding: bool,
     },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum BinaryCommand {
+    Encode {
+        #[command(flatten)]
+        input: InputOptions,
+        #[arg(long, help = "Separate each encoded byte with a space")]
+        spaced: bool,
+    },
+    Decode(InputOptions),
 }
 
 #[derive(Debug, Subcommand)]
@@ -532,63 +566,6 @@ pub enum LanguageArg {
     Typescript,
 }
 
-#[derive(Debug, Subcommand)]
-pub enum HttpCommand {
-    Build(HttpBuildArgs),
-    Render {
-        #[arg(value_enum)]
-        renderer: HttpRendererArg,
-        #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
-        shell: ShellArg,
-        #[command(flatten)]
-        input: InputOptions,
-    },
-    FromHar {
-        #[arg(long)]
-        entry: Option<usize>,
-        #[arg(long, value_enum, default_value_t = HttpRendererArg::Curl)]
-        renderer: HttpRendererArg,
-        #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
-        shell: ShellArg,
-        #[command(flatten)]
-        input: InputOptions,
-    },
-    Status {
-        code: u16,
-    },
-}
-
-#[derive(Debug, Args)]
-pub struct HttpBuildArgs {
-    #[arg(short = 'X', long, default_value = "GET")]
-    pub method: String,
-    pub url: String,
-    #[arg(short = 'H', long = "header")]
-    pub headers: Vec<String>,
-    #[arg(long)]
-    pub json: Option<String>,
-    #[arg(long)]
-    pub data: Option<String>,
-    #[arg(long)]
-    pub body_file: Option<PathBuf>,
-    #[arg(long)]
-    pub follow: bool,
-    #[arg(long)]
-    pub compressed: bool,
-    #[arg(long, value_enum, default_value_t = HttpRendererArg::Curl)]
-    pub render: HttpRendererArg,
-    #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
-    pub shell: ShellArg,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-pub enum HttpRendererArg {
-    Curl,
-    Httpie,
-    Fetch,
-    Axios,
-    Json,
-}
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ShellArg {
     Posix,
@@ -597,22 +574,7 @@ pub enum ShellArg {
 
 #[derive(Debug, Subcommand)]
 pub enum CurlCommand {
-    Parse(InputOptions),
     Format {
-        #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
-        shell: ShellArg,
-        #[command(flatten)]
-        input: InputOptions,
-    },
-    Explain {
-        #[arg(long)]
-        show_secrets: bool,
-        #[command(flatten)]
-        input: InputOptions,
-    },
-    Convert {
-        #[arg(value_enum)]
-        to: HttpRendererArg,
         #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
         shell: ShellArg,
         #[command(flatten)]
@@ -623,56 +585,16 @@ pub enum CurlCommand {
 #[derive(Debug, Subcommand)]
 pub enum SqlCommand {
     Format(SqlFormatArgs),
-    Minify {
-        #[command(flatten)]
-        common: SqlCommonArgs,
-        #[arg(long)]
-        strip_comments: bool,
-    },
-    Validate(SqlCommonArgs),
-    Inspect(SqlCommonArgs),
-    Insert {
-        table: String,
-        #[command(flatten)]
-        common: SqlCommonArgs,
-        #[arg(long)]
-        literal: bool,
-        #[arg(long, help = "Treat input as CSV instead of JSON")]
-        csv: bool,
-    },
-    Update {
-        table: String,
-        #[arg(long)]
-        data: String,
-        #[arg(long, value_name = "JSON")]
-        where_data: String,
-        #[arg(long, value_enum, default_value_t = SqlDialectArg::Generic)]
-        dialect: SqlDialectArg,
-        #[arg(long)]
-        literal: bool,
-    },
-    Placeholders {
-        #[arg(long)]
-        target: String,
-        #[command(flatten)]
-        common: SqlCommonArgs,
-    },
-    QuoteIdentifier {
-        value: String,
-        #[arg(long, value_enum, default_value_t = SqlDialectArg::Generic)]
-        dialect: SqlDialectArg,
-    },
-    QuoteLiteral {
-        value: String,
-        #[arg(long, value_enum, default_value_t = SqlDialectArg::Generic)]
-        dialect: SqlDialectArg,
-    },
 }
 
 #[derive(Debug, Args)]
 pub struct SqlCommonArgs {
-    #[arg(long, value_enum, default_value_t = SqlDialectArg::Generic)]
-    pub dialect: SqlDialectArg,
+    #[arg(
+        long,
+        value_enum,
+        help = "SQL dialect (config: sql.dialect; built-in: generic)"
+    )]
+    pub dialect: Option<SqlDialectArg>,
     #[command(flatten)]
     pub input: InputOptions,
 }
@@ -730,19 +652,44 @@ pub enum TextCommand {
     Unicode(InputOptions),
     OnlyDigits(InputOptions),
 }
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CaseArg {
-    #[value(alias = "camel-case", alias = "camelcase")]
+    #[value(
+        alias = "camel-case",
+        alias = "camelcase",
+        alias = "camelCase",
+        alias = "camel_case"
+    )]
     Camel,
-    #[value(alias = "pascal-case", alias = "pascalcase")]
+    #[value(
+        alias = "pascal-case",
+        alias = "pascalcase",
+        alias = "PascalCase",
+        alias = "pascal_case"
+    )]
     Pascal,
-    #[value(alias = "snake-case", alias = "snakecase")]
+    #[value(alias = "snake-case", alias = "snakecase", alias = "snake_case")]
     Snake,
-    #[value(alias = "kebab-case", alias = "kebabcase")]
+    #[value(
+        alias = "kebab-case",
+        alias = "kebabcase",
+        alias = "kebabCase",
+        alias = "kebab_case"
+    )]
     Kebab,
-    #[value(alias = "constant-case", alias = "screaming-snake")]
+    #[value(
+        alias = "constant-case",
+        alias = "screaming-snake",
+        alias = "CONSTANT_CASE",
+        alias = "constant_case"
+    )]
     Constant,
-    #[value(alias = "title-case", alias = "titlecase")]
+    #[value(
+        alias = "title-case",
+        alias = "titlecase",
+        alias = "TitleCase",
+        alias = "title_case"
+    )]
     Title,
 }
 
@@ -1049,12 +996,33 @@ pub enum CompletionShell {
 
 #[cfg(test)]
 mod tests {
-    use clap::CommandFactory as _;
+    use clap::{CommandFactory as _, Parser as _};
 
-    use super::Cli;
+    use super::{CaseArg, Cli, Command, TextCommand};
 
     #[test]
     fn command_tree_is_internally_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn case_styles_accept_code_spelling_aliases() {
+        let examples = [
+            ("camelCase", CaseArg::Camel),
+            ("PascalCase", CaseArg::Pascal),
+            ("snake_case", CaseArg::Snake),
+            ("kebabCase", CaseArg::Kebab),
+            ("CONSTANT_CASE", CaseArg::Constant),
+            ("TitleCase", CaseArg::Title),
+        ];
+
+        for (alias, expected) in examples {
+            let cli =
+                Cli::try_parse_from(["vutils", "text", "case", alias, "hello world"]).unwrap();
+            let Command::Text(TextCommand::Case { style, .. }) = cli.command else {
+                panic!("expected text case command");
+            };
+            assert_eq!(style, expected);
+        }
     }
 }

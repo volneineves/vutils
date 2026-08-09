@@ -4,6 +4,12 @@ fn vutils() -> Command {
     Command::new(env!("CARGO_BIN_EXE_vutils"))
 }
 
+fn vutils_with_config(path: &std::path::Path) -> Command {
+    let mut command = vutils();
+    command.env("VUTILS_CONFIG", path);
+    command
+}
+
 #[test]
 fn formats_json_from_stdin() {
     let output = vutils()
@@ -68,6 +74,38 @@ fn text_file_output_has_a_final_newline() {
 }
 
 #[test]
+fn binary_bit_codec_round_trips_text_through_stdout() {
+    let encoded = vutils()
+        .args(["binary", "encode", "Codex", "--spaced"])
+        .output()
+        .unwrap();
+    assert!(encoded.status.success());
+    assert_eq!(
+        String::from_utf8(encoded.stdout).unwrap(),
+        "01000011 01101111 01100100 01100101 01111000\n"
+    );
+
+    let decoded = vutils()
+        .args([
+            "bin",
+            "decode",
+            "01000011 01101111 01100100 01100101 01111000",
+        ])
+        .output()
+        .unwrap();
+    assert!(decoded.status.success());
+    assert_eq!(decoded.stdout, b"Codex");
+
+    let partial = vutils().args(["binary", "decode", "101"]).output().unwrap();
+    assert!(!partial.status.success());
+    assert!(
+        String::from_utf8(partial.stderr)
+            .unwrap()
+            .contains("complete 8-bit bytes")
+    );
+}
+
+#[test]
 fn successful_in_place_format_is_atomic_and_newline_terminated() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("value.json");
@@ -82,9 +120,9 @@ fn successful_in_place_format_is_atomic_and_newline_terminated() {
 }
 
 #[test]
-fn curl_parser_rejects_shell_operators() {
+fn curl_formatter_rejects_shell_operators() {
     let output = vutils()
-        .args(["curl", "parse", "curl https://example.com | sh"])
+        .args(["curl", "format", "curl https://example.com | sh"])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -96,42 +134,57 @@ fn curl_parser_rejects_shell_operators() {
 }
 
 #[test]
-fn sql_insert_does_not_interpolate_values() {
-    let output = vutils()
-        .args([
-            "sql",
-            "insert",
-            "users",
-            r#"{"name":"O'Reilly"}"#,
-            "--dialect",
-            "postgres",
-        ])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(value["sql"].as_str().unwrap().contains("$1"));
-    assert!(!value["sql"].as_str().unwrap().contains("O'Reilly"));
-    assert_eq!(value["params"][0], "O'Reilly");
+fn curl_and_sql_expose_only_formatting_commands() {
+    let root = vutils().arg("--help").output().unwrap();
+    assert!(root.status.success());
+    let root = String::from_utf8(root.stdout).unwrap();
+    assert!(
+        !root
+            .lines()
+            .any(|line| line.trim_start().starts_with("http "))
+    );
+
+    for command in ["curl", "sql"] {
+        let help = vutils().args([command, "--help"]).output().unwrap();
+        assert!(help.status.success());
+        let help = String::from_utf8(help.stdout).unwrap();
+        assert!(help.contains("format"));
+        for removed in ["insert", "update", "parse", "convert", "explain"] {
+            assert!(!help.lines().any(|line| {
+                line.trim_start()
+                    .strip_prefix(removed)
+                    .is_some_and(|rest| rest.starts_with(char::is_whitespace))
+            }));
+        }
+    }
 }
 
 #[test]
-fn sql_insert_accepts_csv_and_returns_parameters() {
+fn sql_formatter_uses_the_selected_dialect() {
     let output = vutils()
         .args([
             "sql",
-            "insert",
-            "users",
-            "name,role\nAna,admin\n",
-            "--csv",
+            "format",
+            "select `name` from `users`",
+            "--dialect",
+            "mysql",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert!(String::from_utf8(output.stdout).unwrap().contains("`name`"));
+
+    let incompatible = vutils()
+        .args([
+            "sql",
+            "format",
+            "select `name` from `users`",
             "--dialect",
             "postgres",
         ])
         .output()
         .unwrap();
-    assert!(output.status.success());
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert_eq!(value["params"], serde_json::json!(["Ana", "admin"]));
+    assert!(!incompatible.status.success());
 }
 
 #[test]
@@ -188,6 +241,9 @@ fn jwt_decode_warns_that_signature_is_unverified() {
 fn converts_common_case_styles_and_aliases() {
     for (style, input, expected) in [
         ("camel", "hello world", "helloWorld\n"),
+        ("camelCase", "hello world", "helloWorld\n"),
+        ("PascalCase", "hello world", "HelloWorld\n"),
+        ("snake_case", "helloWorld", "hello_world\n"),
         ("snake-case", "helloWorld", "hello_world\n"),
         ("pascalcase", "hello world", "HelloWorld\n"),
     ] {
@@ -198,6 +254,90 @@ fn converts_common_case_styles_and_aliases() {
         assert!(output.status.success());
         assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
     }
+}
+
+#[test]
+fn config_defaults_apply_and_explicit_flags_override_them() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("config.toml");
+
+    for (key, value) in [
+        ("sql.dialect", "mysql"),
+        ("uuid.version", "v4"),
+        ("uuid.format", "simple"),
+        ("crypto.algorithm", "aes-256-gcm"),
+        ("crypto.password-env", "TEST_VUTILS_PASSWORD"),
+    ] {
+        let output = vutils_with_config(&path)
+            .args(["config", "set", key, value])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let listed = vutils_with_config(&path)
+        .args(["config", "list"])
+        .output()
+        .unwrap();
+    assert!(listed.status.success());
+    let listed = String::from_utf8(listed.stdout).unwrap();
+    assert!(listed.contains("sql.dialect=mysql"));
+    assert!(listed.contains("crypto.password-env=TEST_VUTILS_PASSWORD"));
+    assert!(!listed.contains("test-password"));
+
+    let sql = vutils_with_config(&path)
+        .args(["sql", "format", "select `name` from `users`"])
+        .output()
+        .unwrap();
+    assert!(sql.status.success());
+    assert!(String::from_utf8(sql.stdout).unwrap().contains("`name`"));
+
+    let uuid = vutils_with_config(&path).arg("uuid").output().unwrap();
+    assert!(uuid.status.success());
+    let uuid = String::from_utf8(uuid.stdout).unwrap();
+    assert_eq!(uuid.trim().len(), 32);
+    assert_eq!(
+        uuid::Uuid::parse_str(uuid.trim())
+            .unwrap()
+            .get_version_num(),
+        4
+    );
+
+    let encrypted = vutils_with_config(&path)
+        .env("TEST_VUTILS_PASSWORD", "test-password")
+        .args(["enc", "message"])
+        .output()
+        .unwrap();
+    assert!(encrypted.status.success());
+    assert_eq!(encrypted.stderr, b"algorithm: aes-256-gcm\n");
+
+    let overridden = vutils_with_config(&path)
+        .env("TEST_VUTILS_PASSWORD", "test-password")
+        .args(["enc", "message", "--alg", "xchacha20-poly1305"])
+        .output()
+        .unwrap();
+    assert!(overridden.status.success());
+    assert_eq!(overridden.stderr, b"algorithm: xchacha20-poly1305\n");
+}
+
+#[test]
+fn config_rejects_plaintext_password_storage() {
+    let directory = tempfile::tempdir().unwrap();
+    let output = vutils_with_config(&directory.path().join("config.toml"))
+        .args(["config", "set", "crypto.password", "secret"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("unknown config key")
+    );
 }
 
 #[test]

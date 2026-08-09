@@ -9,28 +9,22 @@ Download the artifact for your system from [GitHub Releases](https://github.com/
 ### Debian and Ubuntu
 
 ```bash
-VUTILS_RELEASE_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/volneineves/vutils/releases/latest)"
-VUTILS_TAG="${VUTILS_RELEASE_URL##*/}"
-VUTILS_VERSION="${VUTILS_TAG#v}"
-curl -fL -o "vutils_${VUTILS_VERSION}_amd64.deb" "https://github.com/volneineves/vutils/releases/download/${VUTILS_TAG}/vutils_${VUTILS_VERSION}_amd64.deb"
-sudo apt install "./vutils_${VUTILS_VERSION}_amd64.deb"
+curl -fL -o vutils-latest-amd64.deb https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-amd64.deb
+sudo apt install ./vutils-latest-amd64.deb
 vutils --version
 ```
 
-`releases/latest` selects the newest stable GitHub release and ignores prereleases created from `main`.
+The URL always follows the newest stable GitHub release and ignores prereleases created from `main`.
 
 ### Fedora, RHEL, Rocky Linux, and openSUSE
 
 ```bash
-VUTILS_RELEASE_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/volneineves/vutils/releases/latest)"
-VUTILS_TAG="${VUTILS_RELEASE_URL##*/}"
-VUTILS_VERSION="${VUTILS_TAG#v}"
-curl -fL -o "vutils-${VUTILS_VERSION}-1.x86_64.rpm" "https://github.com/volneineves/vutils/releases/download/${VUTILS_TAG}/vutils-${VUTILS_VERSION}-1.x86_64.rpm"
-sudo dnf install "./vutils-${VUTILS_VERSION}-1.x86_64.rpm"
+curl -fL -o vutils-latest-x86_64.rpm https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-x86_64.rpm
+sudo dnf install ./vutils-latest-x86_64.rpm
 vutils --version
 ```
 
-On systems without `dnf`, use the downloaded file with the native RPM package manager: `sudo rpm -U "./vutils-${VUTILS_VERSION}-1.x86_64.rpm"`.
+On systems without `dnf`, use the downloaded file with the native RPM package manager: `sudo rpm -U ./vutils-latest-x86_64.rpm`.
 
 ### Portable Linux binary
 
@@ -45,7 +39,7 @@ The raw `vutils-linux-x86_64` asset is also available; make it executable with `
 
 ### macOS
 
-Choose `vutils-macos-aarch64.tar.gz` for Apple Silicon or `vutils-macos-x86_64.tar.gz` for Intel Macs.
+Apple Silicon:
 
 ```bash
 curl -fL -o vutils-macos-aarch64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-aarch64.tar.gz
@@ -54,23 +48,16 @@ sudo install -m 0755 vutils /usr/local/bin/vutils
 vutils --version
 ```
 
-The binaries are not currently signed with an Apple Developer certificate, so macOS may request explicit approval before the first execution.
+Intel Mac:
 
-### Windows
-
-Download `vutils-windows-x86_64.zip`, extract `vutils.exe`, and place it in a directory included in the user `PATH`. A PowerShell-only user installation can use:
-
-```powershell
-$install = "$env:LOCALAPPDATA\Programs\vutils"
-New-Item -ItemType Directory -Force $install | Out-Null
-Copy-Item .\vutils.exe "$install\vutils.exe"
-$path = [Environment]::GetEnvironmentVariable("Path", "User")
-if (($path -split ';') -notcontains $install) {
-  [Environment]::SetEnvironmentVariable("Path", "$path;$install", "User")
-}
+```bash
+curl -fL -o vutils-macos-x86_64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-x86_64.tar.gz
+tar -xzf vutils-macos-x86_64.tar.gz
+sudo install -m 0755 vutils /usr/local/bin/vutils
+vutils --version
 ```
 
-Open a new terminal and run `vutils --version`.
+The binaries are not currently signed with an Apple Developer certificate, so macOS may request explicit approval before the first execution.
 
 ### Verify a download
 
@@ -78,8 +65,6 @@ Open a new terminal and run `vutils --version`.
 curl -fLO https://github.com/volneineves/vutils/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
 ```
-
-On Windows, compare `Get-FileHash .\vutils-windows-x86_64.zip -Algorithm SHA256` with the corresponding entry in `SHA256SUMS`.
 
 Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust, Cargo, or a network connection.
 
@@ -95,6 +80,43 @@ vutils base64 decode 'AAEC' --output bytes.bin
 ```
 
 `--in-place` writes a temporary file beside the source and replaces the original only after successful transformation. `--output` refuses to overwrite an existing file unless `--force` is present. `--copy` additionally copies UTF-8 output to the local clipboard.
+
+## Persistent defaults
+
+Use `vutils config` to avoid repeating the same flags. Explicit command-line flags always win over the config, and built-in defaults remain active for keys that are not configured.
+
+```bash
+vutils config path
+vutils config list
+vutils config set sql.dialect postgres
+vutils config set uuid.version v4
+vutils config set uuid.format simple
+vutils config set crypto.algorithm aes-256-gcm
+vutils config get sql.dialect
+vutils config unset uuid.format
+```
+
+| Key | Accepted values | Built-in default |
+| --- | --- | --- |
+| `sql.dialect` | `generic`, `postgres`, `mysql`, `sqlite`, `mssql` | `generic` |
+| `uuid.version` | `v1` through `v8` | `v7` |
+| `uuid.format` | `hyphenated`, `simple`, `urn`, `braced` | `hyphenated` |
+| `crypto.algorithm` | `xchacha20-poly1305`, `aes-256-gcm` | `xchacha20-poly1305` for `enc` |
+| `crypto.password-env` | Environment variable name | not set |
+| `crypto.password-file` | Local file path | not set |
+
+Passwords are never stored directly in `config.toml`. Configure a source instead:
+
+```bash
+export VUTILS_PASSWORD='use-a-strong-password'
+vutils config set crypto.password-env VUTILS_PASSWORD
+ENCRYPTED="$(vutils enc 'Texto secreto')"  # reads VUTILS_PASSWORD
+vutils dec "$ENCRYPTED"                    # reads VUTILS_PASSWORD
+```
+
+Setting `crypto.password-env` clears `crypto.password-file` and vice versa. A relative password-file path is resolved from the config directory. `dec` still detects the algorithm recorded in each envelope; `crypto.algorithm` selects the default for new `enc` output, while an explicit `--alg` overrides it.
+
+The default config locations are `$XDG_CONFIG_HOME/vutils/config.toml` (or `~/.config/vutils/config.toml`) on Linux and `~/Library/Application Support/vutils/config.toml` on macOS. Set `VUTILS_CONFIG` to use a different file, which is also useful for isolated project profiles.
 
 ## Complete command reference
 
@@ -122,6 +144,7 @@ Every command runs locally. The tables describe the purpose of every command; us
 | Command | Purpose |
 | --- | --- |
 | `base64 encode` / `base64 decode` | Convert binary data to or from standard or URL-safe Base64, with optional padding. |
+| `binary encode` / `binary decode` | Convert bytes to 8-bit `0`/`1` text and decode those bits back to the original bytes. Alias: `bin`. |
 | `hex encode` / `hex decode` | Convert binary data to or from hexadecimal text. |
 | `url encode` / `url decode` | Percent-encode or decode URL/form components. |
 | `url inspect` | Parse a URL and report its components without opening it. |
@@ -147,6 +170,43 @@ Every command runs locally. The tables describe the purpose of every command; us
 | `dotenv parse` / `dotenv validate` / `dotenv sort` | Parse, validate, or sort dotenv entries. |
 | `dotenv diff` | Compare dotenv files, hiding values unless explicitly requested. |
 
+Convert text or source code to bits and decode it back to stdout:
+
+```bash
+vutils binary encode 'A'                         # 01000001
+vutils binary encode --spaced 'let x = 1;'
+vutils binary decode '01000001'                  # writes A to stdout
+
+BITS="$(vutils bin encode 'fn main() {}')"
+vutils bin decode "$BITS"                        # writes fn main() {} to stdout
+vutils bin decode "$BITS" --output restored.rs  # writes the original bytes to a file
+```
+
+`binary decode` ignores spaces, line breaks, tabs, and `_`, but rejects any other character and requires complete 8-bit bytes. Its stdout is raw decoded data, so text appears directly while arbitrary bytes can be redirected or saved with `--output`.
+
+Files and arbitrary binary data are preserved byte for byte. Use `--output` when a decoder produces a binary file and `--input` when encoding that file again:
+
+```bash
+# Base64 text -> binary -> Base64 text
+vutils base64 decode 'AAEC/w==' --output payload.bin
+vutils base64 encode --input payload.bin
+
+# Hex text -> binary -> hex text
+vutils hex decode '000102ff' --output payload-from-hex.bin
+vutils hex encode --input payload-from-hex.bin
+
+# Binary compression and decompression
+vutils gzip compress --input payload.bin --output payload.bin.gz
+vutils gzip decompress --input payload.bin.gz --output payload-restored.bin
+
+# Binary encryption and authenticated decryption
+vutils enc --input payload.bin --passwd-env VUTILS_PASSWORD --output payload.vutils
+vutils dec --input payload.vutils --passwd-env VUTILS_PASSWORD --output payload-decrypted.bin
+cmp payload.bin payload-decrypted.bin
+```
+
+Without `--output`, decoded binary bytes are written directly to stdout and can be piped or redirected. Text encoders add a final newline only when emitted as text; binary decoders and `dec` do not modify the decoded bytes.
+
 ### Text, regex, and code generation
 
 | Command | Purpose |
@@ -167,25 +227,12 @@ Every command runs locally. The tables describe the purpose of every command; us
 | `number convert` | Convert an integer between bases 2 through 36. |
 | `bytes format` / `bytes parse` | Convert byte counts to human-readable SI/IEC sizes or parse them back. |
 
-### Offline HTTP and SQL authoring
+### Offline cURL and SQL formatting
 
 | Command | Purpose |
 | --- | --- |
-| `http build` | Build a request description and render cURL, HTTPie, Fetch, Axios, or JSON without sending it. |
-| `http render` | Render a stored JSON request description in another supported syntax. |
-| `http from-har` | Convert a request from a local HAR document. |
-| `http status` | Explain an HTTP status code. |
-| `curl parse` | Parse one static cURL command into structured JSON. |
 | `curl format` | Normalize and safely quote a static cURL command. |
-| `curl explain` | Explain a cURL command with secrets redacted by default. |
-| `curl convert` | Convert static cURL into cURL, HTTPie, Fetch, Axios, or JSON syntax. |
-| `sql format` / `sql minify` | Format or compact SQL for the selected dialect. |
-| `sql validate` | Parse SQL and report invalid syntax. |
-| `sql inspect` | Report statement type, tables, aliases, and placeholders. |
-| `sql insert` | Generate a parameterized INSERT from JSON or CSV. |
-| `sql update` | Generate a parameterized UPDATE and require a non-empty WHERE object. |
-| `sql placeholders` | Convert placeholder syntax to the requested target style. |
-| `sql quote-identifier` / `sql quote-literal` | Quote an identifier or literal for a SQL dialect. |
+| `sql format` | Format SQL for the selected dialect, keyword case, and indentation. |
 
 ### Security and local inspection
 
@@ -217,6 +264,7 @@ Every command runs locally. The tables describe the purpose of every command; us
 | `semver compare` / `semver sort` / `semver bump` | Compare, sort, or increment semantic versions. |
 | `ip cidr` | Inspect an IP/CIDR network, prefix, mask, and address range. |
 | `mime` | Look up a MIME type from a file extension using the built-in table. |
+| `config path/list/get/set/unset` | Inspect or manage validated per-user defaults for UUID, SQL, and encryption. |
 | `completion` | Generate Bash, Zsh, Fish, PowerShell, or Elvish completion scripts. |
 | `man` | Generate the `vutils(1)` manual page. |
 
@@ -294,45 +342,32 @@ vutils text case constant 'customer account'    # CUSTOMER_ACCOUNT
 vutils text case title 'customer account'       # Customer Account
 ```
 
-The descriptive aliases `camel-case`, `camelcase`, `pascal-case`, `pascalcase`, `snake-case`, and `snakecase` are also accepted.
+Aliases matching code spelling are accepted directly, including `camelCase`, `PascalCase`, `snake_case`, `kebabCase`, `CONSTANT_CASE`, and `TitleCase`. Descriptive forms such as `camel-case`, `camelcase`, `pascal-case`, `pascalcase`, `snake-case`, and `snakecase` also work.
 
-## cURL and HTTP authoring
+## cURL formatting
 
-No request is sent. The commands only parse or render text.
+The formatter accepts one static POSIX cURL command, normalizes flags and quoting, and prints the result. It never sends a request or invokes a shell.
 
 ```bash
-vutils http build https://example.com/users --method POST \
-  --header 'Authorization: Bearer $TOKEN' \
-  --json '{"name":"Ana"}' \
-  --render curl
-
 vutils curl format "curl -XPOST -H 'Accept: application/json' https://example.com"
-vutils curl convert --to fetch --input request.curl
-vutils curl explain --input request.curl       # secrets redacted
+vutils curl format --input request.curl
+vutils curl format --shell powershell --input request.curl
 ```
 
-The cURL parser accepts one static POSIX command and rejects operators, substitutions, redirections, unsupported flags, and non-HTTP URLs. It never invokes a shell.
+Operators, substitutions, redirections, unsupported flags, and non-HTTP URLs are rejected.
 
-## SQL authoring
+## SQL formatting
 
 No database connection is made.
 
 ```bash
 vutils sql format --dialect postgres 'select id,name from users where id=$1'
-vutils sql insert users --dialect postgres '{"name":"Ana","active":true}'
-vutils sql update users --dialect postgres --data '{"name":"Ana"}' --where-data '{"id":42}'
+vutils sql format --dialect mysql --keyword-case lower --indent 4 --input query.sql
+vutils config set sql.dialect postgres
+vutils sql format 'select id,name from users where id=$1'
 ```
 
-Insert and update output is parameterized JSON by default:
-
-```json
-{
-  "sql": "INSERT INTO \"users\" (\"name\") VALUES ($1);",
-  "params": ["Ana"]
-}
-```
-
-`--literal` explicitly requests standalone SQL with dialect-aware quoting. Update refuses an empty `where` object.
+Supported dialects are `generic`, `postgres`, `mysql`, `sqlite`, and `mssql`. Formatting validates the SQL syntax locally before producing output.
 
 ## Password encryption and decryption
 
@@ -412,7 +447,7 @@ cargo package
 
 ## Automated releases
 
-Every push to `main` creates a uniquely versioned GitHub prerelease named `v<crate-version>-build.<run>.<attempt>`. Pushing a `v*` tag creates a stable release. Both paths build and attach Linux, Windows, and macOS binaries, Debian and RPM packages, plus `SHA256SUMS`.
+Every push to `main` creates a uniquely versioned GitHub prerelease named `v<crate-version>-build.<run>.<attempt>`. Pushing a `v*` tag creates a stable release. Both paths build and attach Linux and macOS binaries, Debian and RPM packages, plus `SHA256SUMS`. Stable aliases `vutils-latest-amd64.deb` and `vutils-latest-x86_64.rpm` keep installation URLs independent of the version number.
 
 ## License
 

@@ -6,7 +6,9 @@ use clap::{CommandFactory as _, Parser as _};
 use cli::*;
 use semver::Version;
 use vutils::{
-    Result, VutilsError, codec, codegen, countries, data, generators, http, identifiers,
+    Result, VutilsError, codec, codegen,
+    config::UserConfig,
+    countries, data, generators, http, identifiers,
     io::{InputArgs, OutputArgs},
     security, sql, text, time,
 };
@@ -26,7 +28,11 @@ fn main() -> ExitCode {
         force: cli.force,
         copy: cli.copy,
     };
-    match dispatch(cli.command) {
+    let result = match cli.command {
+        Command::Config(command) => dispatch_config(command),
+        command => UserConfig::load().and_then(|config| dispatch(command, &config)),
+    };
+    match result {
         Ok(result) => match vutils::io::emit(&result.bytes, &result.input, &output, result.textual)
         {
             Ok(()) if result.success => ExitCode::SUCCESS,
@@ -38,11 +44,13 @@ fn main() -> ExitCode {
 }
 
 #[allow(clippy::too_many_lines)]
-fn dispatch(command: Command) -> Result<Outcome> {
+fn dispatch(command: Command, config: &UserConfig) -> Result<Outcome> {
     match command {
         Command::Uuid(args) => {
+            let version = resolve_uuid_version(args.version, config)?;
+            let format = resolve_uuid_format(args.format, config)?;
             validate_count(args.count)?;
-            if matches!(args.version, UuidVersionArg::V2)
+            if matches!(version, identifiers::UuidVersion::V2)
                 && args.node_id.is_some()
                 && args.count > 64
             {
@@ -51,7 +59,7 @@ fn dispatch(command: Command) -> Result<Outcome> {
                 ));
             }
             let options = identifiers::UuidOptions {
-                version: map_uuid_version(args.version),
+                version,
                 namespace: args.namespace.as_deref(),
                 name: args.name.as_deref(),
                 node_id: args.node_id.as_deref(),
@@ -63,11 +71,11 @@ fn dispatch(command: Command) -> Result<Outcome> {
             let values = (0..args.count)
                 .map(|index| {
                     let mut item_options = options.clone();
-                    if matches!(args.version, UuidVersionArg::V2) && args.node_id.is_some() {
+                    if matches!(version, identifiers::UuidVersion::V2) && args.node_id.is_some() {
                         item_options.dce_sequence = Some(index as u8);
                     }
                     identifiers::generate_uuid(&item_options)
-                        .map(|value| identifiers::format_uuid(&value, map_uuid_format(args.format)))
+                        .map(|value| identifiers::format_uuid(&value, format))
                 })
                 .collect::<Result<Vec<_>>>()?;
             text_out(values.join("\n"), InputOptions::default())
@@ -88,6 +96,9 @@ fn dispatch(command: Command) -> Result<Outcome> {
         },
         Command::Gen(command) => dispatch_generator(command),
         Command::Br(args) => dispatch_br(args),
+        Command::Config(_) => Err(VutilsError::Message(
+            "internal error: config command reached regular dispatcher".into(),
+        )),
         Command::Base64(command) => match command {
             Base64Command::Encode {
                 input,
@@ -104,6 +115,14 @@ fn dispatch(command: Command) -> Result<Outcome> {
             } => {
                 let value = codec::base64_decode(&read_text(&input)?, url_safe, !no_padding)?;
                 binary_out(value, input)
+            }
+        },
+        Command::Binary(command) => match command {
+            BinaryCommand::Encode { input, spaced } => {
+                text_out(codec::binary_encode(&read_bytes(&input)?, spaced), input)
+            }
+            BinaryCommand::Decode(input) => {
+                binary_out(codec::binary_decode(&read_text(&input)?)?, input)
             }
         },
         Command::Hex(command) => match command {
@@ -138,15 +157,15 @@ fn dispatch(command: Command) -> Result<Outcome> {
             }
         },
         Command::Enc(args) => {
-            let password = read_password(args.password)?;
-            let algorithm = map_encryption_algorithm(args.algorithm);
+            let password = read_password(args.password, config)?;
+            let algorithm = resolve_encryption_algorithm(args.algorithm, config)?;
             let encrypted =
                 security::encrypt(&read_bytes(&args.input)?, password.as_ref(), algorithm)?;
             eprintln!("algorithm: {}", algorithm.name());
             text_out(encrypted, args.input)
         }
         Command::Dec(args) => {
-            let password = read_password(args.password)?;
+            let password = read_password(args.password, config)?;
             let decrypted = security::decrypt(
                 &read_text(&args.input)?,
                 password.as_ref(),
@@ -184,9 +203,8 @@ fn dispatch(command: Command) -> Result<Outcome> {
             codegen::generate_types(&read_text(&input)?, map_language(lang), &name)?,
             input,
         ),
-        Command::Http(command) => dispatch_http(command),
         Command::Curl(command) => dispatch_curl(command),
-        Command::Sql(command) => dispatch_sql(command),
+        Command::Sql(command) => dispatch_sql(command, config),
         Command::Text(command) => dispatch_text(command),
         Command::Regex(command) => match command {
             RegexCommand::Test { pattern, input } => text_out(
@@ -344,6 +362,43 @@ fn dispatch(command: Command) -> Result<Outcome> {
             http::mime_lookup(&extension).into(),
             InputOptions::default(),
         ),
+    }
+}
+
+fn dispatch_config(command: ConfigCommand) -> Result<Outcome> {
+    match command {
+        ConfigCommand::Path => text_out(
+            vutils::config::config_path()?.display().to_string(),
+            InputOptions::default(),
+        ),
+        ConfigCommand::List => {
+            let config = UserConfig::load()?;
+            let values = config
+                .entries()
+                .into_iter()
+                .map(|(key, value)| format!("{key}={value}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            text_out(values, InputOptions::default())
+        }
+        ConfigCommand::Get { key } => {
+            let config = UserConfig::load()?;
+            text_out(config.get(&key)?, InputOptions::default())
+        }
+        ConfigCommand::Set { key, value } => {
+            let mut config = UserConfig::load()?;
+            config.set(&key, &value)?;
+            let effective = config.get(&key)?;
+            config.save()?;
+            text_out(effective, InputOptions::default())
+        }
+        ConfigCommand::Unset { key } => {
+            let mut config = UserConfig::load()?;
+            config.unset(&key)?;
+            let effective = config.get(&key).unwrap_or_else(|_| "<unset>".into());
+            config.save()?;
+            text_out(effective, InputOptions::default())
+        }
     }
 }
 
@@ -544,116 +599,16 @@ fn dispatch_dotenv(command: DotenvCommand) -> Result<Outcome> {
     }
 }
 
-fn dispatch_http(command: HttpCommand) -> Result<Outcome> {
-    match command {
-        HttpCommand::Build(args) => {
-            let mut request = http::HttpRequestSpec::new(&args.method, &args.url)?;
-            request.headers = args
-                .headers
-                .iter()
-                .map(|header| {
-                    header
-                        .split_once(':')
-                        .map(|(name, value)| (name.trim().into(), value.trim().into()))
-                        .ok_or_else(|| {
-                            VutilsError::InvalidInput(format!(
-                                "header `{header}` must contain a colon"
-                            ))
-                        })
-                })
-                .collect::<Result<_>>()?;
-            let body_count = usize::from(args.json.is_some())
-                + usize::from(args.data.is_some())
-                + usize::from(args.body_file.is_some());
-            if body_count > 1 {
-                return Err(VutilsError::InvalidInput(
-                    "use only one of --json, --data, or --body-file".into(),
-                ));
-            }
-            request.body = if let Some(json) = args.json {
-                Some(http::HttpBody::Json(data::parse_json(&json)?))
-            } else if let Some(value) = args.data {
-                Some(http::HttpBody::Text(value))
-            } else {
-                args.body_file.map(|path| http::HttpBody::File {
-                    path: path.to_string_lossy().into_owned(),
-                    binary: true,
-                })
-            };
-            request.follow_redirects = args.follow;
-            request.compressed = args.compressed;
-            text_out(
-                http::render(
-                    &request,
-                    map_http_renderer(args.render),
-                    map_shell(args.shell),
-                )?,
-                InputOptions::default(),
-            )
-        }
-        HttpCommand::Render {
-            renderer,
-            shell,
-            input,
-        } => {
-            let request: http::HttpRequestSpec = serde_json::from_str(&read_text(&input)?)
-                .map_err(|error| {
-                    VutilsError::InvalidInput(format!("invalid HTTP request spec: {error}"))
-                })?;
-            text_out(
-                http::render(&request, map_http_renderer(renderer), map_shell(shell))?,
-                input,
-            )
-        }
-        HttpCommand::FromHar {
-            entry,
-            renderer,
-            shell,
-            input,
-        } => {
-            let request = http::request_from_har(&read_text(&input)?, entry)?;
-            text_out(
-                http::render(&request, map_http_renderer(renderer), map_shell(shell))?,
-                input,
-            )
-        }
-        HttpCommand::Status { code } => text_out(
-            format!("{code} {}", http::http_status(code)?),
-            InputOptions::default(),
-        ),
-    }
-}
-
 fn dispatch_curl(command: CurlCommand) -> Result<Outcome> {
     match command {
-        CurlCommand::Parse(input) => text_out(
-            serde_json::to_string_pretty(&http::parse_curl(&read_text(&input)?)?)
-                .map_err(message)?,
-            input,
-        ),
         CurlCommand::Format { shell, input } => text_out(
             http::format_curl(&read_text(&input)?, map_shell(shell))?,
             input,
         ),
-        CurlCommand::Explain {
-            show_secrets,
-            input,
-        } => text_out(
-            http::explain_curl(&read_text(&input)?, show_secrets)?,
-            input,
-        ),
-        CurlCommand::Convert { to, shell, input } => text_out(
-            http::render(
-                &http::parse_curl(&read_text(&input)?)?,
-                map_http_renderer(to),
-                map_shell(shell),
-            )?,
-            input,
-        ),
     }
 }
 
-fn dispatch_sql(command: SqlCommand) -> Result<Outcome> {
+fn dispatch_sql(command: SqlCommand, config: &UserConfig) -> Result<Outcome> {
     match command {
         SqlCommand::Format(args) => {
             let uppercase = match args.keyword_case {
@@ -664,7 +619,7 @@ fn dispatch_sql(command: SqlCommand) -> Result<Outcome> {
             text_out(
                 sql::format_sql(
                     &read_text(&args.common.input)?,
-                    map_sql_dialect(args.common.dialect),
+                    resolve_sql_dialect(args.common.dialect, config)?,
                     uppercase,
                     args.indent,
                     false,
@@ -672,87 +627,6 @@ fn dispatch_sql(command: SqlCommand) -> Result<Outcome> {
                 args.common.input,
             )
         }
-        SqlCommand::Minify {
-            common,
-            strip_comments,
-        } => text_out(
-            sql::minify_sql(
-                &read_text(&common.input)?,
-                map_sql_dialect(common.dialect),
-                strip_comments,
-            )?,
-            common.input,
-        ),
-        SqlCommand::Validate(common) => {
-            sql::validate_sql(&read_text(&common.input)?, map_sql_dialect(common.dialect))?;
-            status_with_input(true, common.input)
-        }
-        SqlCommand::Inspect(common) => text_out(
-            sql::inspect_sql(&read_text(&common.input)?, map_sql_dialect(common.dialect))?,
-            common.input,
-        ),
-        SqlCommand::Insert {
-            table,
-            common,
-            literal,
-            csv,
-        } => {
-            let raw = read_text(&common.input)?;
-            let json_input = if csv { data::csv_to_json(&raw)? } else { raw };
-            let generated = sql::generate_insert(
-                &table,
-                &json_input,
-                map_sql_dialect(common.dialect),
-                literal,
-            )?;
-            if literal {
-                text_out(generated.sql, common.input)
-            } else {
-                text_out(
-                    serde_json::to_string_pretty(&generated).map_err(message)?,
-                    common.input,
-                )
-            }
-        }
-        SqlCommand::Update {
-            table,
-            data,
-            where_data,
-            dialect,
-            literal,
-        } => {
-            let generated = sql::generate_update(
-                &table,
-                &data,
-                &where_data,
-                map_sql_dialect(dialect),
-                literal,
-            )?;
-            if literal {
-                text_out(generated.sql, InputOptions::default())
-            } else {
-                text_out(
-                    serde_json::to_string_pretty(&generated).map_err(message)?,
-                    InputOptions::default(),
-                )
-            }
-        }
-        SqlCommand::Placeholders { target, common } => text_out(
-            sql::convert_placeholders(
-                &read_text(&common.input)?,
-                map_sql_dialect(common.dialect),
-                &target,
-            )?,
-            common.input,
-        ),
-        SqlCommand::QuoteIdentifier { value, dialect } => text_out(
-            sql::quote_identifier(&value, map_sql_dialect(dialect))?,
-            InputOptions::default(),
-        ),
-        SqlCommand::QuoteLiteral { value, dialect } => text_out(
-            sql::quote_literal(&serde_json::Value::String(value), map_sql_dialect(dialect))?,
-            InputOptions::default(),
-        ),
     }
 }
 
@@ -1004,7 +878,10 @@ fn read_secret(options: &SecretOptions) -> Result<Vec<u8>> {
     Ok(value)
 }
 
-fn read_password(options: PasswordOptions) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+fn read_password(
+    options: PasswordOptions,
+    config: &UserConfig,
+) -> Result<zeroize::Zeroizing<Vec<u8>>> {
     if let Some(value) = options.passwd {
         return Ok(zeroize::Zeroizing::new(value.into_bytes()));
     }
@@ -1017,18 +894,33 @@ fn read_password(options: PasswordOptions) -> Result<zeroize::Zeroizing<Vec<u8>>
         return Ok(zeroize::Zeroizing::new(value));
     }
     if let Some(name) = options.passwd_env {
-        return env::var(&name)
-            .map(String::into_bytes)
-            .map(zeroize::Zeroizing::new)
-            .map_err(|_| {
-                VutilsError::InvalidInput(format!(
-                    "environment variable `{name}` is not set or is not Unicode"
-                ))
-            });
+        return read_password_environment(&name);
+    }
+    if let Some(path) = config.password_file() {
+        let mut value = fs::read(&path).map_err(|source| VutilsError::Read {
+            path: path.clone(),
+            source,
+        })?;
+        trim_line_ending(&mut value);
+        return Ok(zeroize::Zeroizing::new(value));
+    }
+    if let Some(name) = config.password_env() {
+        return read_password_environment(name);
     }
     Err(VutilsError::InvalidInput(
-        "provide a password using --passwd, --passwd-file, or --passwd-env".into(),
+        "provide a password using --passwd, --passwd-file, --passwd-env, or configure crypto.password-env/crypto.password-file".into(),
     ))
+}
+
+fn read_password_environment(name: &str) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    env::var(name)
+        .map(String::into_bytes)
+        .map(zeroize::Zeroizing::new)
+        .map_err(|_| {
+            VutilsError::InvalidInput(format!(
+                "environment variable `{name}` is not set or is not Unicode"
+            ))
+        })
 }
 
 fn trim_line_ending(value: &mut Vec<u8>) {
@@ -1115,6 +1007,26 @@ fn fail(error: &VutilsError) -> ExitCode {
     ExitCode::FAILURE
 }
 
+fn resolve_uuid_version(
+    value: Option<UuidVersionArg>,
+    config: &UserConfig,
+) -> Result<identifiers::UuidVersion> {
+    if let Some(value) = value {
+        return Ok(map_uuid_version(value));
+    }
+    match config.uuid_version() {
+        "v1" => Ok(identifiers::UuidVersion::V1),
+        "v2" => Ok(identifiers::UuidVersion::V2),
+        "v3" => Ok(identifiers::UuidVersion::V3),
+        "v4" => Ok(identifiers::UuidVersion::V4),
+        "v5" => Ok(identifiers::UuidVersion::V5),
+        "v6" => Ok(identifiers::UuidVersion::V6),
+        "v7" => Ok(identifiers::UuidVersion::V7),
+        "v8" => Ok(identifiers::UuidVersion::V8),
+        value => Err(invalid_loaded_config("uuid.version", value)),
+    }
+}
+
 fn map_uuid_version(value: UuidVersionArg) -> identifiers::UuidVersion {
     match value {
         UuidVersionArg::V1 => identifiers::UuidVersion::V1,
@@ -1127,6 +1039,23 @@ fn map_uuid_version(value: UuidVersionArg) -> identifiers::UuidVersion {
         UuidVersionArg::V8 => identifiers::UuidVersion::V8,
     }
 }
+
+fn resolve_uuid_format(
+    value: Option<UuidFormatArg>,
+    config: &UserConfig,
+) -> Result<identifiers::UuidFormat> {
+    if let Some(value) = value {
+        return Ok(map_uuid_format(value));
+    }
+    match config.uuid_format() {
+        "hyphenated" => Ok(identifiers::UuidFormat::Hyphenated),
+        "simple" => Ok(identifiers::UuidFormat::Simple),
+        "urn" => Ok(identifiers::UuidFormat::Urn),
+        "braced" => Ok(identifiers::UuidFormat::Braced),
+        value => Err(invalid_loaded_config("uuid.format", value)),
+    }
+}
+
 fn map_uuid_format(value: UuidFormatArg) -> identifiers::UuidFormat {
     match value {
         UuidFormatArg::Hyphenated => identifiers::UuidFormat::Hyphenated,
@@ -1150,21 +1079,29 @@ fn map_language(value: LanguageArg) -> codegen::TargetLanguage {
         LanguageArg::Typescript => codegen::TargetLanguage::TypeScript,
     }
 }
-fn map_http_renderer(value: HttpRendererArg) -> http::HttpRenderer {
-    match value {
-        HttpRendererArg::Curl => http::HttpRenderer::Curl,
-        HttpRendererArg::Httpie => http::HttpRenderer::Httpie,
-        HttpRendererArg::Fetch => http::HttpRenderer::Fetch,
-        HttpRendererArg::Axios => http::HttpRenderer::Axios,
-        HttpRendererArg::Json => http::HttpRenderer::Json,
-    }
-}
 fn map_shell(value: ShellArg) -> http::Shell {
     match value {
         ShellArg::Posix => http::Shell::Posix,
         ShellArg::Powershell => http::Shell::PowerShell,
     }
 }
+fn resolve_sql_dialect(
+    value: Option<SqlDialectArg>,
+    config: &UserConfig,
+) -> Result<sql::SqlDialect> {
+    if let Some(value) = value {
+        return Ok(map_sql_dialect(value));
+    }
+    match config.sql_dialect() {
+        "generic" => Ok(sql::SqlDialect::Generic),
+        "postgres" => Ok(sql::SqlDialect::PostgreSql),
+        "mysql" => Ok(sql::SqlDialect::MySql),
+        "sqlite" => Ok(sql::SqlDialect::SQLite),
+        "mssql" => Ok(sql::SqlDialect::SqlServer),
+        value => Err(invalid_loaded_config("sql.dialect", value)),
+    }
+}
+
 fn map_sql_dialect(value: SqlDialectArg) -> sql::SqlDialect {
     match value {
         SqlDialectArg::Generic => sql::SqlDialect::Generic,
@@ -1205,6 +1142,20 @@ fn map_hash(value: HashAlgorithmArg) -> security::DigestAlgorithm {
     }
 }
 
+fn resolve_encryption_algorithm(
+    value: Option<EncryptionAlgorithmArg>,
+    config: &UserConfig,
+) -> Result<security::EncryptionAlgorithm> {
+    if let Some(value) = value {
+        return Ok(map_encryption_algorithm(value));
+    }
+    match config.crypto_algorithm() {
+        "aes-256-gcm" => Ok(security::EncryptionAlgorithm::Aes256Gcm),
+        "xchacha20-poly1305" => Ok(security::EncryptionAlgorithm::XChaCha20Poly1305),
+        value => Err(invalid_loaded_config("crypto.algorithm", value)),
+    }
+}
+
 fn map_encryption_algorithm(value: EncryptionAlgorithmArg) -> security::EncryptionAlgorithm {
     match value {
         EncryptionAlgorithmArg::Aes256Gcm => security::EncryptionAlgorithm::Aes256Gcm,
@@ -1212,6 +1163,12 @@ fn map_encryption_algorithm(value: EncryptionAlgorithmArg) -> security::Encrypti
             security::EncryptionAlgorithm::XChaCha20Poly1305
         }
     }
+}
+
+fn invalid_loaded_config(key: &str, value: &str) -> VutilsError {
+    VutilsError::InvalidInput(format!(
+        "invalid normalized config value `{value}` for `{key}`"
+    ))
 }
 fn map_totp(value: TotpAlgorithmArg) -> security::TotpAlgorithm {
     match value {

@@ -95,6 +95,46 @@ pub fn hex_decode(input: &str) -> Result<Vec<u8>> {
         .collect()
 }
 
+pub fn binary_encode(input: &[u8], spaced: bool) -> String {
+    let separators = usize::from(spaced).saturating_mul(input.len().saturating_sub(1));
+    let mut output = String::with_capacity(input.len().saturating_mul(8) + separators);
+    for (index, byte) in input.iter().enumerate() {
+        if spaced && index > 0 {
+            output.push(' ');
+        }
+        for shift in (0..8).rev() {
+            output.push(if byte & (1 << shift) == 0 { '0' } else { '1' });
+        }
+    }
+    output
+}
+
+pub fn binary_decode(input: &str) -> Result<Vec<u8>> {
+    let mut bits = Vec::with_capacity(input.len());
+    for character in input.chars() {
+        match character {
+            '0' => bits.push(0),
+            '1' => bits.push(1),
+            '_' | ' ' | '\t' | '\r' | '\n' => {}
+            _ => {
+                return Err(VutilsError::InvalidInput(format!(
+                    "invalid binary digit `{character}`; expected 0 or 1"
+                )));
+            }
+        }
+    }
+    if !bits.len().is_multiple_of(8) {
+        return Err(VutilsError::InvalidInput(format!(
+            "binary input must contain complete 8-bit bytes; found {} bits",
+            bits.len()
+        )));
+    }
+    Ok(bits
+        .chunks_exact(8)
+        .map(|chunk| chunk.iter().fold(0_u8, |value, bit| (value << 1) | bit))
+        .collect())
+}
+
 pub fn url_encode(input: &str, form: bool) -> String {
     let encoded = utf8_percent_encode(input, URL_COMPONENT).to_string();
     if form {
@@ -156,6 +196,7 @@ mod tests {
             input
         );
         assert_eq!(hex_decode(&hex_encode(input, false)).unwrap(), input);
+        assert_eq!(binary_decode(&binary_encode(input, true)).unwrap(), input);
         assert_eq!(
             gzip_decompress(&gzip_compress(input, 6).unwrap()).unwrap(),
             input
@@ -175,5 +216,12 @@ mod tests {
             b"hello"
         );
         assert_eq!(hex_decode("0XCA FE").unwrap(), [0xca, 0xfe]);
+        assert_eq!(binary_decode("0100_0001 01000010").unwrap(), b"AB");
+    }
+
+    #[test]
+    fn binary_decoder_rejects_invalid_or_partial_bytes() {
+        assert!(binary_decode("0100000x").is_err());
+        assert!(binary_decode("101").is_err());
     }
 }
