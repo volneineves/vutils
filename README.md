@@ -9,8 +9,12 @@ Download the artifact for your system from [GitHub Releases](https://github.com/
 ### Debian and Ubuntu
 
 ```bash
-curl -fL -o vutils-latest-amd64.deb https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-amd64.deb
-sudo apt install ./vutils-latest-amd64.deb
+(
+  VUTILS_TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
+  curl -fL -o "$VUTILS_TMP_DIR/vutils.deb" https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-amd64.deb
+  sudo apt install "$VUTILS_TMP_DIR/vutils.deb"
+)
 vutils --version
 ```
 
@@ -19,19 +23,27 @@ The URL always follows the newest stable GitHub release and ignores prereleases 
 ### Fedora, RHEL, Rocky Linux, and openSUSE
 
 ```bash
-curl -fL -o vutils-latest-x86_64.rpm https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-x86_64.rpm
-sudo dnf install ./vutils-latest-x86_64.rpm
+(
+  VUTILS_TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
+  curl -fL -o "$VUTILS_TMP_DIR/vutils.rpm" https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-x86_64.rpm
+  sudo dnf install "$VUTILS_TMP_DIR/vutils.rpm"
+)
 vutils --version
 ```
 
-On systems without `dnf`, use the downloaded file with the native RPM package manager: `sudo rpm -U ./vutils-latest-x86_64.rpm`.
+On systems without `dnf`, replace the install line inside the block with `sudo rpm -U "$VUTILS_TMP_DIR/vutils.rpm"`.
 
 ### Portable Linux binary
 
 ```bash
-curl -fL -o vutils-linux-x86_64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-linux-x86_64.tar.gz
-tar -xzf vutils-linux-x86_64.tar.gz
-sudo install -m 0755 vutils /usr/local/bin/vutils
+(
+  VUTILS_TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
+  curl -fL -o "$VUTILS_TMP_DIR/vutils.tar.gz" https://github.com/volneineves/vutils/releases/latest/download/vutils-linux-x86_64.tar.gz
+  tar -xzf "$VUTILS_TMP_DIR/vutils.tar.gz" -C "$VUTILS_TMP_DIR"
+  sudo install -m 0755 "$VUTILS_TMP_DIR/vutils" /usr/local/bin/vutils
+)
 vutils --version
 ```
 
@@ -42,18 +54,26 @@ The raw `vutils-linux-x86_64` asset is also available; make it executable with `
 Apple Silicon:
 
 ```bash
-curl -fL -o vutils-macos-aarch64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-aarch64.tar.gz
-tar -xzf vutils-macos-aarch64.tar.gz
-sudo install -m 0755 vutils /usr/local/bin/vutils
+(
+  VUTILS_TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
+  curl -fL -o "$VUTILS_TMP_DIR/vutils.tar.gz" https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-aarch64.tar.gz
+  tar -xzf "$VUTILS_TMP_DIR/vutils.tar.gz" -C "$VUTILS_TMP_DIR"
+  sudo install -m 0755 "$VUTILS_TMP_DIR/vutils" /usr/local/bin/vutils
+)
 vutils --version
 ```
 
 Intel Mac:
 
 ```bash
-curl -fL -o vutils-macos-x86_64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-x86_64.tar.gz
-tar -xzf vutils-macos-x86_64.tar.gz
-sudo install -m 0755 vutils /usr/local/bin/vutils
+(
+  VUTILS_TMP_DIR="$(mktemp -d)"
+  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
+  curl -fL -o "$VUTILS_TMP_DIR/vutils.tar.gz" https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-x86_64.tar.gz
+  tar -xzf "$VUTILS_TMP_DIR/vutils.tar.gz" -C "$VUTILS_TMP_DIR"
+  sudo install -m 0755 "$VUTILS_TMP_DIR/vutils" /usr/local/bin/vutils
+)
 vutils --version
 ```
 
@@ -61,9 +81,10 @@ The binaries are not currently signed with an Apple Developer certificate, so ma
 
 ### Verify a download
 
+For an asset downloaded manually into the current directory, stream the checksum list instead of saving another file:
+
 ```bash
-curl -fLO https://github.com/volneineves/vutils/releases/latest/download/SHA256SUMS
-sha256sum -c SHA256SUMS --ignore-missing
+curl -fsSL https://github.com/volneineves/vutils/releases/latest/download/SHA256SUMS | sha256sum -c - --ignore-missing
 ```
 
 Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust, Cargo, or a network connection.
