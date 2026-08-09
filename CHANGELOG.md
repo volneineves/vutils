@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-09
+
+### Added
+
+- Password-based `enc` and `dec` commands with XChaCha20-Poly1305 by default and optional AES-256-GCM.
+- Versioned `vutils:v1` envelopes using Argon2id, random salts/nonces, authenticated ciphertext, and URL-safe Base64.
+- Complete README command reference, UUID v1-v8 guidance, and copyable `curl` installation commands for the latest stable release.
+- Country-oriented `br` commands for complete profiles plus CPF, CNPJ, CEP, phone, and PIX generation; CPF/CNPJ validation now lives beside generation.
+
+### Changed
+
+- XChaCha20-Poly1305 is the default encryption algorithm; successful encryption/decryption reports the selected algorithm on stderr without corrupting stdout pipelines.
+- Brazilian fixture logic moved into an extensible `countries::br` module instead of the generic generator namespace.
+
 ## [0.2.0] - 2026-08-09
 
 ### Added

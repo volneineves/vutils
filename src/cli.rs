@@ -30,8 +30,8 @@ pub enum Command {
     Id(IdCommand),
     #[command(subcommand, about = "Generate local test data")]
     Gen(GenCommand),
-    #[command(subcommand, about = "Validate identifiers and documents")]
-    Validate(ValidateCommand),
+    #[command(about = "Generate and validate Brazilian development fixtures")]
+    Br(BrArgs),
     #[command(subcommand, about = "Encode and decode Base64 data")]
     Base64(Base64Command),
     #[command(subcommand, about = "Encode and decode hexadecimal data")]
@@ -42,17 +42,21 @@ pub enum Command {
     Html(TextCodecCommand),
     #[command(subcommand, about = "Compress and decompress GZip data")]
     Gzip(GzipCommand),
+    #[command(about = "Encrypt data with a password using authenticated encryption")]
+    Enc(EncryptionArgs),
+    #[command(about = "Decrypt a vutils encrypted envelope with its password")]
+    Dec(DecryptionArgs),
     #[command(subcommand, about = "Format, query, validate, and convert JSON")]
     Json(JsonCommand),
     #[command(subcommand, about = "Format, validate, split, join, and convert YAML")]
     Yaml(YamlCommand),
-    #[command(subcommand, about = "Format, validate, and convert CSV")]
+    #[command(subcommand, about = "Validate and convert CSV")]
     Csv(CsvCommand),
     #[command(subcommand, about = "Format, validate, and convert TOML")]
     Toml(TomlCommand),
     #[command(subcommand, about = "Format and validate XML")]
     Xml(XmlCommand),
-    #[command(subcommand, about = "Format, validate, and convert dotenv files")]
+    #[command(subcommand, about = "Parse, validate, sort, and compare dotenv files")]
     Dotenv(DotenvCommand),
     #[command(
         subcommand,
@@ -73,10 +77,7 @@ pub enum Command {
     Sql(SqlCommand),
     #[command(subcommand, about = "Transform and compare text")]
     Text(TextCommand),
-    #[command(
-        subcommand,
-        about = "Test, replace, split, and explain regular expressions"
-    )]
+    #[command(subcommand, about = "Test and replace regular expressions")]
     Regex(RegexCommand),
     #[command(
         subcommand,
@@ -98,11 +99,11 @@ pub enum Command {
         about = "Hash and verify passwords"
     )]
     PasswordHash(PasswordHashCommand),
-    #[command(subcommand, about = "Generate and inspect offline TOTP codes")]
+    #[command(subcommand, about = "Generate and verify offline TOTP codes")]
     Totp(TotpCommand),
     #[command(subcommand, about = "Decode JWTs without verifying signatures")]
     Jwt(JwtCommand),
-    #[command(subcommand, about = "Calculate and verify file or directory checksums")]
+    #[command(subcommand, about = "Calculate file or directory checksums")]
     Checksum(ChecksumCommand),
     #[command(subcommand, about = "Inspect PEM containers")]
     Pem(PemCommand),
@@ -114,7 +115,7 @@ pub enum Command {
     Cron(CronCommand),
     #[command(subcommand, about = "Encode and decode Unix permission bits")]
     Chmod(ChmodCommand),
-    #[command(subcommand, about = "Normalize, join, and relativize paths")]
+    #[command(subcommand, about = "Normalize and relativize paths")]
     Path(PathCommand),
     #[command(subcommand, about = "Compare and evaluate semantic versions")]
     Semver(SemverCommand),
@@ -149,6 +150,68 @@ pub struct SecretOptions {
     pub secret_file: Option<PathBuf>,
     #[arg(long, value_name = "NAME", conflicts_with_all = ["secret", "secret_file"])]
     pub secret_env: Option<String>,
+}
+
+#[derive(Debug, Args, Clone, Default)]
+pub struct PasswordOptions {
+    #[arg(
+        long,
+        value_name = "PASSWORD",
+        conflicts_with_all = ["passwd_file", "passwd_env"],
+        help = "Password value (may be recorded in shell history)"
+    )]
+    pub passwd: Option<String>,
+    #[arg(
+        long,
+        value_name = "PATH",
+        conflicts_with_all = ["passwd", "passwd_env"],
+        help = "Read the password from a local file"
+    )]
+    pub passwd_file: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "NAME",
+        conflicts_with_all = ["passwd", "passwd_file"],
+        help = "Read the password from an environment variable"
+    )]
+    pub passwd_env: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct EncryptionArgs {
+    #[arg(
+        long = "alg",
+        value_enum,
+        default_value_t = EncryptionAlgorithmArg::XChaCha20Poly1305,
+        help = "Encryption algorithm; SHA algorithms are hashes and are not reversible"
+    )]
+    pub algorithm: EncryptionAlgorithmArg,
+    #[command(flatten)]
+    pub password: PasswordOptions,
+    #[command(flatten)]
+    pub input: InputOptions,
+}
+
+#[derive(Debug, Args)]
+pub struct DecryptionArgs {
+    #[arg(
+        long = "alg",
+        value_enum,
+        help = "Require this algorithm; otherwise use the algorithm stored in the envelope"
+    )]
+    pub algorithm: Option<EncryptionAlgorithmArg>,
+    #[command(flatten)]
+    pub password: PasswordOptions,
+    #[command(flatten)]
+    pub input: InputOptions,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum EncryptionAlgorithmArg {
+    #[value(name = "aes-256-gcm", alias = "aes256-gcm", alias = "aes")]
+    Aes256Gcm,
+    #[value(name = "xchacha20-poly1305", alias = "xchacha20", alias = "xchacha")]
+    XChaCha20Poly1305,
 }
 
 #[derive(Debug, Args)]
@@ -236,30 +299,6 @@ pub enum GenCommand {
         #[arg(long)]
         alphabet: Option<String>,
     },
-    Cpf {
-        #[arg(long)]
-        formatted: bool,
-        #[arg(short, long, default_value_t = 1)]
-        count: u32,
-    },
-    Cnpj {
-        #[arg(long)]
-        formatted: bool,
-        #[arg(short, long, default_value_t = 1)]
-        count: u32,
-    },
-    Cep {
-        #[arg(long)]
-        formatted: bool,
-        #[arg(short, long, default_value_t = 1)]
-        count: u32,
-    },
-    Phone {
-        #[arg(long)]
-        formatted: bool,
-        #[arg(short, long, default_value_t = 1)]
-        count: u32,
-    },
     Email {
         #[arg(long, default_value = "example.com")]
         domain: String,
@@ -270,22 +309,53 @@ pub enum GenCommand {
         #[arg(short, long, default_value_t = 1)]
         count: u32,
     },
-    Pix {
-        #[arg(long, default_value = "random")]
-        kind: String,
-        #[arg(short, long, default_value_t = 1)]
-        count: u32,
-    },
     Lorem {
         #[arg(short, long, default_value_t = 24)]
         words: usize,
     },
 }
 
+#[derive(Debug, Args)]
+pub struct BrArgs {
+    #[command(subcommand)]
+    pub command: Option<BrCommand>,
+}
+
 #[derive(Debug, Subcommand)]
-pub enum ValidateCommand {
-    Cpf { value: String },
-    Cnpj { value: String },
+pub enum BrCommand {
+    #[command(about = "Generate or validate Brazilian CPF values")]
+    Cpf(BrDocumentArgs),
+    #[command(about = "Generate or validate Brazilian CNPJ values")]
+    Cnpj(BrDocumentArgs),
+    #[command(about = "Generate synthetic Brazilian CEP values")]
+    Cep(BrFixtureArgs),
+    #[command(about = "Generate synthetic Brazilian mobile phone values")]
+    Phone(BrFixtureArgs),
+    #[command(about = "Generate synthetic Brazilian PIX keys")]
+    Pix {
+        #[arg(long, default_value = "random")]
+        kind: String,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct BrDocumentArgs {
+    #[arg(long, conflicts_with_all = ["count", "formatted"])]
+    pub validate: Option<String>,
+    #[arg(short, long, default_value_t = 1)]
+    pub count: u32,
+    #[arg(long)]
+    pub formatted: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct BrFixtureArgs {
+    #[arg(short, long, default_value_t = 1)]
+    pub count: u32,
+    #[arg(long)]
+    pub formatted: bool,
 }
 
 #[derive(Debug, Subcommand)]

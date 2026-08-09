@@ -9,22 +9,33 @@ Download the artifact for your system from [GitHub Releases](https://github.com/
 ### Debian and Ubuntu
 
 ```bash
-sudo apt install ./vutils_<version>_amd64.deb
+VUTILS_RELEASE_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/volneineves/vutils/releases/latest)"
+VUTILS_TAG="${VUTILS_RELEASE_URL##*/}"
+VUTILS_VERSION="${VUTILS_TAG#v}"
+curl -fL -o "vutils_${VUTILS_VERSION}_amd64.deb" "https://github.com/volneineves/vutils/releases/download/${VUTILS_TAG}/vutils_${VUTILS_VERSION}_amd64.deb"
+sudo apt install "./vutils_${VUTILS_VERSION}_amd64.deb"
 vutils --version
 ```
+
+`releases/latest` selects the newest stable GitHub release and ignores prereleases created from `main`.
 
 ### Fedora, RHEL, Rocky Linux, and openSUSE
 
 ```bash
-sudo dnf install ./vutils-<version>-1.x86_64.rpm
+VUTILS_RELEASE_URL="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/volneineves/vutils/releases/latest)"
+VUTILS_TAG="${VUTILS_RELEASE_URL##*/}"
+VUTILS_VERSION="${VUTILS_TAG#v}"
+curl -fL -o "vutils-${VUTILS_VERSION}-1.x86_64.rpm" "https://github.com/volneineves/vutils/releases/download/${VUTILS_TAG}/vutils-${VUTILS_VERSION}-1.x86_64.rpm"
+sudo dnf install "./vutils-${VUTILS_VERSION}-1.x86_64.rpm"
 vutils --version
 ```
 
-On systems without `dnf`, use the native RPM package manager, such as `sudo rpm -U ./vutils-<version>-1.x86_64.rpm`.
+On systems without `dnf`, use the downloaded file with the native RPM package manager: `sudo rpm -U "./vutils-${VUTILS_VERSION}-1.x86_64.rpm"`.
 
 ### Portable Linux binary
 
 ```bash
+curl -fL -o vutils-linux-x86_64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-linux-x86_64.tar.gz
 tar -xzf vutils-linux-x86_64.tar.gz
 sudo install -m 0755 vutils /usr/local/bin/vutils
 vutils --version
@@ -37,6 +48,7 @@ The raw `vutils-linux-x86_64` asset is also available; make it executable with `
 Choose `vutils-macos-aarch64.tar.gz` for Apple Silicon or `vutils-macos-x86_64.tar.gz` for Intel Macs.
 
 ```bash
+curl -fL -o vutils-macos-aarch64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-aarch64.tar.gz
 tar -xzf vutils-macos-aarch64.tar.gz
 sudo install -m 0755 vutils /usr/local/bin/vutils
 vutils --version
@@ -63,6 +75,7 @@ Open a new terminal and run `vutils --version`.
 ### Verify a download
 
 ```bash
+curl -fLO https://github.com/volneineves/vutils/releases/latest/download/SHA256SUMS
 sha256sum -c SHA256SUMS --ignore-missing
 ```
 
@@ -83,22 +96,129 @@ vutils base64 decode 'AAEC' --output bytes.bin
 
 `--in-place` writes a temporary file beside the source and replaces the original only after successful transformation. `--output` refuses to overwrite an existing file unless `--force` is present. `--copy` additionally copies UTF-8 output to the local clipboard.
 
-## Command groups
+## Complete command reference
 
-| Group | Examples |
+Every command runs locally. The tables describe the purpose of every command; use `vutils <command> --help` or `vutils help <command>` to see all flags, accepted values, defaults, and input modes.
+
+### Identifiers, fixtures, and validation
+
+| Command | Purpose |
 | --- | --- |
-| Identifiers | `uuid`, `id ulid`, `id nanoid`, `id objectid` |
-| Test data | `gen password`, `gen token`, `gen cpf`, `gen cnpj`, `gen phone`, `gen pix`, `gen lorem` |
-| Structured data | `json`, `yaml`, `csv`, `toml`, `xml`, `dotenv` |
-| Codecs | `base64`, `hex`, `url`, `html`, `gzip`, `string escape` |
-| Text | `text case`, `text slug`, `text diff`, `regex`, `number`, `bytes` |
-| Code generation | `code types --lang rust|kotlin|csharp|typescript` |
-| HTTP authoring | `http build`, `http render`, `http from-har`, `curl parse|format|explain|convert` |
-| SQL authoring | `sql format|minify|validate|inspect|insert|update|placeholders|quote-*` |
-| Security | `hash`, `hmac`, `password-hash`, `totp`, `jwt`, `checksum`, `pem`, `cert` |
-| Offline calculators | `time`, `cron`, `chmod`, `path`, `semver`, `ip cidr`, `mime`, `qr` |
+| `uuid` | Generate UUID v1 through v8 in hyphenated, simple, URN, or braced format. Defaults to v7. |
+| `id ulid` | Generate lexicographically sortable ULIDs. |
+| `id nanoid` | Generate compact random NanoIDs with configurable length. |
+| `id objectid` | Generate MongoDB-style 24-character ObjectId fixtures. |
+| `gen password` | Generate passwords with configurable length, symbol use, and ambiguous-character exclusion. |
+| `gen token` | Generate random tokens, optionally using a custom alphabet. |
+| `gen email` / `gen name` | Generate local email or name fixtures. |
+| `gen lorem` | Generate a requested number of Lorem Ipsum words. |
+| `br` | Generate a complete Brazilian fixture profile as JSON: CPF, CNPJ, CEP, mobile phone, and PIX. |
+| `br cpf` / `br cnpj` | Generate Brazilian CPF/CNPJ values or validate one with `--validate`; invalid values return exit code 1. |
+| `br cep` / `br phone` | Generate synthetic Brazilian CEP or mobile phone fixtures. These are not looked up. |
+| `br pix` | Generate synthetic random, CPF, CNPJ, email, or phone PIX keys. |
 
-Use `vutils help <command>` or `vutils <command> --help` for the complete options.
+### Codecs, encryption, and structured data
+
+| Command | Purpose |
+| --- | --- |
+| `base64 encode` / `base64 decode` | Convert binary data to or from standard or URL-safe Base64, with optional padding. |
+| `hex encode` / `hex decode` | Convert binary data to or from hexadecimal text. |
+| `url encode` / `url decode` | Percent-encode or decode URL/form components. |
+| `url inspect` | Parse a URL and report its components without opening it. |
+| `html encode` / `html decode` | Escape or decode HTML entities. |
+| `gzip compress` / `gzip decompress` | Compress or decompress local GZip data. |
+| `enc` | Encrypt text or binary input into a versioned, authenticated `vutils:v1` envelope. |
+| `dec` | Authenticate and decrypt a `vutils:v1` envelope back to its original bytes. |
+| `json pretty` / `json minify` | Format or compact JSON. |
+| `json validate` | Validate JSON syntax. |
+| `json escape` / `json unescape` | Encode a value as a JSON string literal or recover the string contents. |
+| `json sort-keys` | Recursively sort object keys. |
+| `json flatten` / `json unflatten` | Convert nested objects to or from dotted paths. |
+| `json path` | Read a value using the supported JSON path expression syntax. |
+| `json diff` | Compare two JSON inputs, optionally emitting a patch. |
+| `json to-yaml` / `json to-csv` / `json to-toml` | Convert JSON to YAML, CSV, or TOML. |
+| `json schema-validate` | Validate JSON against a local JSON Schema file. |
+| `yaml pretty` / `yaml validate` | Format or validate YAML. |
+| `yaml to-json` | Convert one JSON-compatible YAML document to JSON. |
+| `yaml split` / `yaml join` | Split a multi-document YAML stream or join local YAML files. |
+| `csv validate` / `csv to-json` | Validate CSV or convert rows to JSON objects. |
+| `toml pretty` / `toml validate` / `toml to-json` | Format, validate, or convert TOML. |
+| `xml pretty` / `xml validate` | Format or validate XML. |
+| `dotenv parse` / `dotenv validate` / `dotenv sort` | Parse, validate, or sort dotenv entries. |
+| `dotenv diff` | Compare dotenv files, hiding values unless explicitly requested. |
+
+### Text, regex, and code generation
+
+| Command | Purpose |
+| --- | --- |
+| `code types` | Infer Rust, Kotlin, C#, or TypeScript models from a JSON example. |
+| `text case` | Convert text to camelCase, PascalCase, snake_case, kebab-case, CONSTANT_CASE, or Title Case. |
+| `text slug` | Produce a normalized URL-friendly slug. |
+| `text trim` | Trim surrounding whitespace. |
+| `text sort-lines` | Sort lines, optionally descending and/or unique. |
+| `text unique-lines` | Remove duplicate lines while retaining the first occurrence. |
+| `text normalize-eol` | Normalize line endings to LF or CRLF. |
+| `text diff` | Produce a human-readable text diff. |
+| `text unicode` | Inspect Unicode code points and character information. |
+| `text only-digits` | Remove every non-digit character. |
+| `regex test` | Test a Rust-compatible regular expression and report matches. |
+| `regex replace` | Replace all or only the first regular-expression match. |
+| `string escape` / `string unescape` | Escape or unescape literals for JSON, Rust, Kotlin, Java, C#, JavaScript, TypeScript, Python, SQL, or POSIX shell. |
+| `number convert` | Convert an integer between bases 2 through 36. |
+| `bytes format` / `bytes parse` | Convert byte counts to human-readable SI/IEC sizes or parse them back. |
+
+### Offline HTTP and SQL authoring
+
+| Command | Purpose |
+| --- | --- |
+| `http build` | Build a request description and render cURL, HTTPie, Fetch, Axios, or JSON without sending it. |
+| `http render` | Render a stored JSON request description in another supported syntax. |
+| `http from-har` | Convert a request from a local HAR document. |
+| `http status` | Explain an HTTP status code. |
+| `curl parse` | Parse one static cURL command into structured JSON. |
+| `curl format` | Normalize and safely quote a static cURL command. |
+| `curl explain` | Explain a cURL command with secrets redacted by default. |
+| `curl convert` | Convert static cURL into cURL, HTTPie, Fetch, Axios, or JSON syntax. |
+| `sql format` / `sql minify` | Format or compact SQL for the selected dialect. |
+| `sql validate` | Parse SQL and report invalid syntax. |
+| `sql inspect` | Report statement type, tables, aliases, and placeholders. |
+| `sql insert` | Generate a parameterized INSERT from JSON or CSV. |
+| `sql update` | Generate a parameterized UPDATE and require a non-empty WHERE object. |
+| `sql placeholders` | Convert placeholder syntax to the requested target style. |
+| `sql quote-identifier` / `sql quote-literal` | Quote an identifier or literal for a SQL dialect. |
+
+### Security and local inspection
+
+| Command | Purpose |
+| --- | --- |
+| `hash sha256` / `hash sha512` | Calculate a one-way cryptographic digest. Hashes cannot be decrypted. |
+| `hmac` | Calculate a SHA-256 or SHA-512 keyed message authentication code. |
+| `password-hash argon2-hash` / `argon2-verify` | Hash or verify a password using Argon2. |
+| `password-hash bcrypt-hash` / `bcrypt-verify` | Hash or verify a UTF-8 password using bcrypt. |
+| `totp generate-secret` | Generate a local Base32 TOTP secret. |
+| `totp code` / `totp verify` | Calculate or verify offline TOTP codes with configurable algorithm, period, digits, and window. |
+| `jwt decode` | Decode JWT header/payload and inspect temporal claims without verifying the signature. |
+| `checksum file` / `checksum directory` | Calculate deterministic SHA checksums for a file or directory tree. |
+| `pem inspect` | List PEM blocks, decoded sizes, and whether a block appears sensitive. |
+| `cert inspect` | Inspect a local PEM X.509 certificate, including names, validity, serial, and SANs. |
+| `qr generate` | Render input as a terminal, SVG, or PNG QR code. |
+
+### Time, paths, versions, and shell integration
+
+| Command | Purpose |
+| --- | --- |
+| `time now` | Return local RFC 3339 time by default, UTC with `--utc`, or Unix time with `--unix`. |
+| `time to-iso` / `time to-unix` | Convert Unix timestamps and RFC 3339 values. |
+| `time duration` | Parse a human-readable duration into milliseconds. |
+| `cron next` / `cron explain` | Parse a cron expression and list upcoming local or UTC occurrences. |
+| `chmod encode` / `chmod decode` | Convert symbolic Unix permissions and octal modes. |
+| `path normalize` | Lexically normalize a path without accessing the filesystem target. |
+| `path relative` | Calculate a relative path between two paths. |
+| `semver compare` / `semver sort` / `semver bump` | Compare, sort, or increment semantic versions. |
+| `ip cidr` | Inspect an IP/CIDR network, prefix, mask, and address range. |
+| `mime` | Look up a MIME type from a file extension using the built-in table. |
+| `completion` | Generate Bash, Zsh, Fish, PowerShell, or Elvish completion scripts. |
+| `man` | Generate the `vutils(1)` manual page. |
 
 ## UUIDs
 
@@ -110,7 +230,35 @@ vutils uuid --version v2 --domain person --local-id 1000
 vutils uuid --version v8 --custom-bytes 00112233445566778899aabbccddeeff
 ```
 
-UUID v2 is a legacy DCE Security format. `vutils` produces best-effort fixtures but cannot provide registry-backed global uniqueness. With a fixed node ID, a single batch is limited to 64 values.
+| Version | What it contains | Typical use and caveats |
+| --- | --- | --- |
+| UUID v1 | Gregorian timestamp, clock sequence, and 48-bit node ID. | Legacy time-based identifiers. They are roughly ordered but can expose generation time and a supplied hardware-like node ID. `vutils` uses a random multicast node by default. |
+| UUID v2 | DCE Security local domain and local identifier mixed with v1 fields. | Legacy person/group/organization fixtures. It is rarely supported and is not recommended for new systems. |
+| UUID v3 | Namespace plus name hashed with MD5. | Deterministic compatibility IDs: the same namespace/name always produces the same UUID. MD5 here provides identity mapping, not password/security protection. |
+| UUID v4 | 122 random bits. | General random identifiers when ordering is not required. |
+| UUID v5 | Namespace plus name hashed with SHA-1. | Preferred deterministic UUID over v3 for compatibility, but it is still an identifier, not a security primitive. |
+| UUID v6 | Reordered v1 timestamp plus clock/node fields. | Time-sortable replacement for v1 while retaining its node/time characteristics. |
+| UUID v7 | Unix epoch milliseconds plus random bits. | Default and recommended for most new database/application IDs: naturally sortable with no MAC address. |
+| UUID v8 | Application-defined 128-bit layout with version/variant bits normalized. | Controlled interoperability or test fixtures. Semantics and uniqueness are the application's responsibility. |
+
+For v3/v5, pass `--namespace dns|url|oid|x500|<uuid>` and `--name <value>`. For v1/v2/v6, `--node-id` accepts 12 hexadecimal digits; omitting it avoids embedding a real MAC address. UUID v2 is a best-effort fixture because `vutils` has no DCE registry that can guarantee globally assigned local IDs. With a fixed node ID, one v2 batch is limited to 64 values. UUID v8 requires exactly 16 bytes (32 hexadecimal digits) through `--custom-bytes`.
+
+## Brazilian development fixtures
+
+Country-specific data is grouped under its country code so other countries can be added without mixing national rules into generic generators. Running `br` without a subcommand produces one complete JSON profile:
+
+```bash
+vutils br
+vutils br --help
+vutils br cpf --count 5 --formatted
+vutils br cpf --validate '529.982.247-25'
+vutils br cnpj --validate '11.222.333/0001-81'
+vutils br cep --formatted
+vutils br phone --count 3
+vutils br pix --kind phone
+```
+
+CPF and CNPJ validation checks syntax/check digits only; it does not query Receita Federal or establish that a document was issued. CEP, phone, PIX, and document generation is synthetic test data.
 
 ## JSON, YAML, CSV, TOML, and XML
 
@@ -186,9 +334,39 @@ Insert and update output is parameterized JSON by default:
 
 `--literal` explicitly requests standalone SQL with dialect-aware quoting. Update refuses an empty `where` object.
 
+## Password encryption and decryption
+
+`enc` encrypts arbitrary text or binary input; `dec` authenticates the envelope before returning the original bytes. XChaCha20-Poly1305 is the default:
+
+```bash
+vutils enc "Texto secreto" --passwd 123
+export VUTILS_PASSWORD='use-a-strong-password'
+ENCRYPTED="$(vutils enc 'Texto secreto' --passwd-env VUTILS_PASSWORD)"
+vutils dec "$ENCRYPTED" --passwd-env VUTILS_PASSWORD
+vutils enc --input secret.bin --passwd-file password.txt --output secret.vutils
+vutils dec --input secret.vutils --passwd-file password.txt --output secret.bin
+```
+
+Select or inspect algorithms with:
+
+```bash
+vutils enc --help
+vutils enc "Texto secreto" --passwd 123 --alg xchacha20-poly1305
+vutils dec "$ENCRYPTED" --passwd-env VUTILS_PASSWORD --alg aes-256-gcm
+```
+
+| Algorithm | Notes |
+| --- | --- |
+| `xchacha20-poly1305` | Default. Modern authenticated stream cipher with an extended random nonce and no dependency on AES hardware acceleration. |
+| `aes-256-gcm` | Widely supported authenticated encryption with a 256-bit derived key and a random 96-bit nonce. |
+
+The `vutils:v1` envelope records the algorithm, KDF, random salt, random nonce, and authenticated ciphertext in URL-safe Base64. The password-derived key uses the RFC 9106 memory-constrained profile for Argon2id v1.3 (`m=65536 KiB`, `t=3`, `p=4`, 128-bit salt, 256-bit key), fixed for envelope v1 so future library-default changes cannot break existing data. Decryption rejects a wrong password, altered data, unsupported versions, and an optional mismatched `--alg`. Successful `enc` and `dec` commands print `algorithm: <name>` to stderr while stdout remains the unmodified result channel for pipes and binary files.
+
+SHA-256 and SHA-512 are deliberately not accepted by `--alg`: SHA is one-way hashing and cannot support `dec`. Use `vutils hash sha256` or `vutils hash sha512` when a digest is the intended result.
+
 ## Secrets
 
-HMAC, TOTP, and password hashing prefer stdin, `--secret-file`, or `--secret-env`. `--secret` is convenient but may be visible in shell history and process listings.
+Encryption prefers `--passwd-file` or `--passwd-env`. HMAC, TOTP, and password hashing prefer stdin, `--secret-file`, or `--secret-env`. `--passwd` and `--secret` are convenient but may be visible in shell history and process listings.
 
 ```bash
 printf '%s' 'password' | vutils password-hash argon2-hash

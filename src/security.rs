@@ -5,17 +5,23 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use aes_gcm::{
+    Aes256Gcm, Nonce as AesNonce,
+    aead::{Aead as _, KeyInit as _, Payload},
+};
 use argon2::{
-    Argon2,
+    Algorithm as Argon2Algorithm, Argon2, Params as Argon2Params, Version as Argon2Version,
     password_hash::{PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString},
 };
 use base64::Engine as _;
+use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use data_encoding::BASE32_NOPAD;
-use hmac::{Hmac, KeyInit as _, Mac as _};
-use serde::Serialize;
+use hmac::{Hmac, Mac as _};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256, Sha512};
 use walkdir::WalkDir;
 use x509_parser::prelude::parse_x509_certificate;
+use zeroize::Zeroizing;
 
 use crate::{Result, VutilsError};
 
@@ -23,6 +29,230 @@ use crate::{Result, VutilsError};
 pub enum DigestAlgorithm {
     Sha256,
     Sha512,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EncryptionAlgorithm {
+    Aes256Gcm,
+    XChaCha20Poly1305,
+}
+
+impl EncryptionAlgorithm {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Aes256Gcm => "aes-256-gcm",
+            Self::XChaCha20Poly1305 => "xchacha20-poly1305",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "aes-256-gcm" => Ok(Self::Aes256Gcm),
+            "xchacha20-poly1305" => Ok(Self::XChaCha20Poly1305),
+            _ => Err(VutilsError::InvalidInput(format!(
+                "unsupported encryption algorithm `{value}`"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct DecryptionResult {
+    pub plaintext: Vec<u8>,
+    pub algorithm: EncryptionAlgorithm,
+}
+
+const ENCRYPTION_PREFIX: &str = "vutils:v1:";
+const ENCRYPTION_KDF: &str = "argon2id";
+const SALT_LENGTH: usize = 16;
+const ARGON2_MEMORY_KIB: u32 = 65_536;
+const ARGON2_ITERATIONS: u32 = 3;
+const ARGON2_PARALLELISM: u32 = 4;
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EncryptionEnvelope {
+    algorithm: String,
+    kdf: String,
+    salt: String,
+    nonce: String,
+    ciphertext: String,
+}
+
+pub fn encrypt(
+    plaintext: &[u8],
+    password: &[u8],
+    algorithm: EncryptionAlgorithm,
+) -> Result<String> {
+    validate_encryption_password(password)?;
+    let salt = rand::random::<[u8; SALT_LENGTH]>();
+    let key = derive_encryption_key(password, &salt)?;
+    let nonce = match algorithm {
+        EncryptionAlgorithm::Aes256Gcm => rand::random::<[u8; 12]>().to_vec(),
+        EncryptionAlgorithm::XChaCha20Poly1305 => rand::random::<[u8; 24]>().to_vec(),
+    };
+    let aad = encryption_aad(algorithm);
+    let payload = Payload {
+        msg: plaintext,
+        aad: aad.as_bytes(),
+    };
+    let ciphertext = match algorithm {
+        EncryptionAlgorithm::Aes256Gcm => {
+            let nonce = AesNonce::try_from(nonce.as_slice()).map_err(|_| {
+                VutilsError::Message("failed to initialize AES-256-GCM nonce".into())
+            })?;
+            Aes256Gcm::new_from_slice(key.as_ref())
+                .map_err(|_| VutilsError::Message("failed to initialize AES-256-GCM".into()))?
+                .encrypt(&nonce, payload)
+        }
+        EncryptionAlgorithm::XChaCha20Poly1305 => {
+            let nonce = XNonce::try_from(nonce.as_slice()).map_err(|_| {
+                VutilsError::Message("failed to initialize XChaCha20-Poly1305 nonce".into())
+            })?;
+            XChaCha20Poly1305::new_from_slice(key.as_ref())
+                .map_err(|_| {
+                    VutilsError::Message("failed to initialize XChaCha20-Poly1305".into())
+                })?
+                .encrypt(&nonce, payload)
+        }
+    }
+    .map_err(|_| VutilsError::Message("encryption failed".into()))?;
+    let base64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let envelope = EncryptionEnvelope {
+        algorithm: algorithm.name().into(),
+        kdf: ENCRYPTION_KDF.into(),
+        salt: base64.encode(salt),
+        nonce: base64.encode(nonce),
+        ciphertext: base64.encode(ciphertext),
+    };
+    let encoded = serde_json::to_vec(&envelope)
+        .map_err(|error| VutilsError::Message(format!("failed to encode envelope: {error}")))?;
+    Ok(format!("{ENCRYPTION_PREFIX}{}", base64.encode(encoded)))
+}
+
+pub fn decrypt(
+    encoded: &str,
+    password: &[u8],
+    expected_algorithm: Option<EncryptionAlgorithm>,
+) -> Result<DecryptionResult> {
+    validate_encryption_password(password)?;
+    let encoded = encoded.trim();
+    let payload = encoded.strip_prefix(ENCRYPTION_PREFIX).ok_or_else(|| {
+        VutilsError::InvalidInput("invalid encrypted value: expected a vutils:v1 envelope".into())
+    })?;
+    let base64 = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let envelope_bytes = base64.decode(payload).map_err(|_| {
+        VutilsError::InvalidInput("invalid encrypted value: malformed envelope".into())
+    })?;
+    let envelope: EncryptionEnvelope = serde_json::from_slice(&envelope_bytes).map_err(|_| {
+        VutilsError::InvalidInput("invalid encrypted value: malformed envelope".into())
+    })?;
+    if envelope.kdf != ENCRYPTION_KDF {
+        return Err(VutilsError::InvalidInput(format!(
+            "unsupported key derivation function `{}`",
+            envelope.kdf
+        )));
+    }
+    let algorithm = EncryptionAlgorithm::parse(&envelope.algorithm)?;
+    if let Some(expected) = expected_algorithm
+        && expected != algorithm
+    {
+        return Err(VutilsError::InvalidInput(format!(
+            "encrypted value uses {}, not {}",
+            algorithm.name(),
+            expected.name()
+        )));
+    }
+    let salt = decode_envelope_field(&envelope.salt, "salt")?;
+    if salt.len() != SALT_LENGTH {
+        return Err(VutilsError::InvalidInput(
+            "invalid encrypted value: incorrect salt length".into(),
+        ));
+    }
+    let nonce = decode_envelope_field(&envelope.nonce, "nonce")?;
+    let expected_nonce_length = match algorithm {
+        EncryptionAlgorithm::Aes256Gcm => 12,
+        EncryptionAlgorithm::XChaCha20Poly1305 => 24,
+    };
+    if nonce.len() != expected_nonce_length {
+        return Err(VutilsError::InvalidInput(
+            "invalid encrypted value: incorrect nonce length".into(),
+        ));
+    }
+    let ciphertext = decode_envelope_field(&envelope.ciphertext, "ciphertext")?;
+    let key = derive_encryption_key(password, &salt)?;
+    let aad = encryption_aad(algorithm);
+    let payload = Payload {
+        msg: &ciphertext,
+        aad: aad.as_bytes(),
+    };
+    let plaintext = match algorithm {
+        EncryptionAlgorithm::Aes256Gcm => {
+            let nonce = AesNonce::try_from(nonce.as_slice()).map_err(|_| {
+                VutilsError::InvalidInput("invalid encrypted value: incorrect nonce length".into())
+            })?;
+            Aes256Gcm::new_from_slice(key.as_ref())
+                .map_err(|_| VutilsError::Message("failed to initialize AES-256-GCM".into()))?
+                .decrypt(&nonce, payload)
+        }
+        EncryptionAlgorithm::XChaCha20Poly1305 => {
+            let nonce = XNonce::try_from(nonce.as_slice()).map_err(|_| {
+                VutilsError::InvalidInput("invalid encrypted value: incorrect nonce length".into())
+            })?;
+            XChaCha20Poly1305::new_from_slice(key.as_ref())
+                .map_err(|_| {
+                    VutilsError::Message("failed to initialize XChaCha20-Poly1305".into())
+                })?
+                .decrypt(&nonce, payload)
+        }
+    }
+    .map_err(|_| {
+        VutilsError::InvalidInput(
+            "decryption failed: wrong password or corrupted encrypted value".into(),
+        )
+    })?;
+    Ok(DecryptionResult {
+        plaintext,
+        algorithm,
+    })
+}
+
+fn validate_encryption_password(password: &[u8]) -> Result<()> {
+    if password.is_empty() {
+        return Err(VutilsError::InvalidInput(
+            "encryption password cannot be empty".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn derive_encryption_key(password: &[u8], salt: &[u8]) -> Result<Zeroizing<[u8; 32]>> {
+    let mut key = Zeroizing::new([0_u8; 32]);
+    let params = Argon2Params::new(
+        ARGON2_MEMORY_KIB,
+        ARGON2_ITERATIONS,
+        ARGON2_PARALLELISM,
+        Some(key.len()),
+    )
+    .map_err(|error| VutilsError::Message(format!("invalid Argon2id parameters: {error}")))?;
+    Argon2::new(Argon2Algorithm::Argon2id, Argon2Version::V0x13, params)
+        .hash_password_into(password, salt, &mut *key)
+        .map_err(|error| VutilsError::Message(format!("Argon2id failed: {error}")))?;
+    Ok(key)
+}
+
+fn decode_envelope_field(value: &str, name: &str) -> Result<Vec<u8>> {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(value)
+        .map_err(|_| {
+            VutilsError::InvalidInput(format!(
+                "invalid encrypted value: malformed {name} encoding"
+            ))
+        })
+}
+
+fn encryption_aad(algorithm: EncryptionAlgorithm) -> String {
+    format!("{ENCRYPTION_PREFIX}{}:{ENCRYPTION_KDF}", algorithm.name())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -515,5 +745,41 @@ mod tests {
         assert!(argon2_verify(b"secret", &argon).unwrap());
         let bcrypt = bcrypt_hash(b"secret", 4).unwrap();
         assert!(bcrypt_verify(b"secret", &bcrypt).unwrap());
+    }
+
+    #[test]
+    fn password_encryption_round_trips_all_algorithms() {
+        for algorithm in [
+            EncryptionAlgorithm::Aes256Gcm,
+            EncryptionAlgorithm::XChaCha20Poly1305,
+        ] {
+            let encoded = encrypt(b"binary\0payload", b"correct horse", algorithm).unwrap();
+            assert!(encoded.starts_with(ENCRYPTION_PREFIX));
+            let decrypted = decrypt(&encoded, b"correct horse", Some(algorithm)).unwrap();
+            assert_eq!(decrypted.plaintext, b"binary\0payload");
+            assert_eq!(decrypted.algorithm, algorithm);
+        }
+    }
+
+    #[test]
+    fn password_encryption_uses_random_salt_and_rejects_invalid_inputs() {
+        let first = encrypt(b"message", b"password", EncryptionAlgorithm::Aes256Gcm).unwrap();
+        let second = encrypt(b"message", b"password", EncryptionAlgorithm::Aes256Gcm).unwrap();
+        assert_ne!(first, second);
+        assert!(decrypt(&first, b"wrong", None).is_err());
+        assert!(
+            decrypt(
+                &first,
+                b"password",
+                Some(EncryptionAlgorithm::XChaCha20Poly1305)
+            )
+            .is_err()
+        );
+        assert!(encrypt(b"message", b"", EncryptionAlgorithm::Aes256Gcm).is_err());
+
+        let mut corrupted = first.into_bytes();
+        let last = corrupted.last_mut().unwrap();
+        *last = if *last == b'A' { b'B' } else { b'A' };
+        assert!(decrypt(std::str::from_utf8(&corrupted).unwrap(), b"password", None).is_err());
     }
 }

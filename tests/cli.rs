@@ -233,3 +233,107 @@ fn time_is_local_by_default_and_utc_on_request() {
         .parse::<i64>()
         .unwrap();
 }
+
+#[test]
+fn encrypts_and_decrypts_with_password_and_selected_algorithm() {
+    for algorithm in ["aes-256-gcm", "xchacha20-poly1305"] {
+        let encrypted = vutils()
+            .args([
+                "enc",
+                "Texto secreto",
+                "--passwd",
+                "123",
+                "--alg",
+                algorithm,
+            ])
+            .output()
+            .unwrap();
+        assert!(encrypted.status.success());
+        assert_eq!(
+            String::from_utf8(encrypted.stderr).unwrap(),
+            format!("algorithm: {algorithm}\n")
+        );
+        let envelope = String::from_utf8(encrypted.stdout).unwrap();
+        assert!(envelope.starts_with("vutils:v1:"));
+
+        let decrypted = vutils()
+            .args(["dec", envelope.trim(), "--passwd", "123"])
+            .output()
+            .unwrap();
+        assert!(decrypted.status.success());
+        assert_eq!(decrypted.stdout, b"Texto secreto");
+        assert_eq!(
+            String::from_utf8(decrypted.stderr).unwrap(),
+            format!("algorithm: {algorithm}\n")
+        );
+
+        let wrong_password = vutils()
+            .args(["dec", envelope.trim(), "--passwd", "wrong"])
+            .output()
+            .unwrap();
+        assert!(!wrong_password.status.success());
+        assert!(
+            String::from_utf8(wrong_password.stderr)
+                .unwrap()
+                .contains("wrong password or corrupted")
+        );
+    }
+}
+
+#[test]
+fn encryption_help_lists_reversible_algorithms_and_sha_guidance() {
+    let output = vutils().args(["enc", "--help"]).output().unwrap();
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).unwrap();
+    assert!(help.contains("aes-256-gcm"));
+    assert!(help.contains("xchacha20-poly1305"));
+    assert!(help.contains("SHA algorithms are hashes and are not reversible"));
+}
+
+#[test]
+fn encryption_defaults_to_xchacha20_poly1305() {
+    let output = vutils()
+        .args(["enc", "message", "--passwd", "123"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stderr).unwrap(),
+        "algorithm: xchacha20-poly1305\n"
+    );
+}
+
+#[test]
+fn brazilian_profile_help_generation_and_validation_are_cohesive() {
+    let help = vutils().args(["br", "--help"]).output().unwrap();
+    assert!(help.status.success());
+    let help = String::from_utf8(help.stdout).unwrap();
+    for command in ["cpf", "cnpj", "cep", "phone", "pix"] {
+        assert!(help.contains(command));
+    }
+
+    let profile = vutils().arg("br").output().unwrap();
+    assert!(profile.status.success());
+    let profile: serde_json::Value = serde_json::from_slice(&profile.stdout).unwrap();
+    let cpf = profile["cpf"].as_str().unwrap();
+    let cnpj = profile["cnpj"].as_str().unwrap();
+    assert!(vutils::countries::br::validate_cpf(cpf));
+    assert!(vutils::countries::br::validate_cnpj(cnpj));
+    assert!(profile["cep"].is_string());
+    assert!(profile["phone"].is_string());
+    assert!(profile["pix"].is_string());
+
+    let valid = vutils()
+        .args(["br", "cnpj", "--validate", cnpj])
+        .output()
+        .unwrap();
+    assert!(valid.status.success());
+    assert_eq!(valid.stdout, b"valid\n");
+
+    let invalid = vutils()
+        .args(["br", "cpf", "--validate", "111.111.111-11"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert_eq!(invalid.stdout, b"invalid\n");
+}

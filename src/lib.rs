@@ -2,6 +2,7 @@
 
 pub mod codec;
 pub mod codegen;
+pub mod countries;
 pub mod data;
 pub mod error;
 pub mod generators;

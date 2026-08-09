@@ -6,7 +6,7 @@ use clap::{CommandFactory as _, Parser as _};
 use cli::*;
 use semver::Version;
 use vutils::{
-    Result, VutilsError, codec, codegen, data, generators, http, identifiers,
+    Result, VutilsError, codec, codegen, countries, data, generators, http, identifiers,
     io::{InputArgs, OutputArgs},
     security, sql, text, time,
 };
@@ -87,13 +87,7 @@ fn dispatch(command: Command) -> Result<Outcome> {
             ),
         },
         Command::Gen(command) => dispatch_generator(command),
-        Command::Validate(command) => {
-            let valid = match command {
-                ValidateCommand::Cpf { value } => generators::validate_cpf(&value),
-                ValidateCommand::Cnpj { value } => generators::validate_cnpj(&value),
-            };
-            status_out(valid)
-        }
+        Command::Br(args) => dispatch_br(args),
         Command::Base64(command) => match command {
             Base64Command::Encode {
                 input,
@@ -143,6 +137,24 @@ fn dispatch(command: Command) -> Result<Outcome> {
                 binary_out(codec::gzip_decompress(&read_bytes(&input)?)?, input)
             }
         },
+        Command::Enc(args) => {
+            let password = read_password(args.password)?;
+            let algorithm = map_encryption_algorithm(args.algorithm);
+            let encrypted =
+                security::encrypt(&read_bytes(&args.input)?, password.as_ref(), algorithm)?;
+            eprintln!("algorithm: {}", algorithm.name());
+            text_out(encrypted, args.input)
+        }
+        Command::Dec(args) => {
+            let password = read_password(args.password)?;
+            let decrypted = security::decrypt(
+                &read_text(&args.input)?,
+                password.as_ref(),
+                args.algorithm.map(map_encryption_algorithm),
+            )?;
+            eprintln!("algorithm: {}", decrypted.algorithm.name());
+            binary_out(decrypted.plaintext, args.input)
+        }
         Command::Json(command) => dispatch_json(command),
         Command::Yaml(command) => dispatch_yaml(command),
         Command::Csv(command) => match command {
@@ -350,18 +362,53 @@ fn dispatch_generator(command: GenCommand) -> Result<Outcome> {
             count,
             alphabet,
         } => repeat(count, || generators::token(length, alphabet.as_deref()))?,
-        GenCommand::Cpf { formatted, count } => repeat(count, || Ok(generators::cpf(formatted)))?,
-        GenCommand::Cnpj { formatted, count } => repeat(count, || Ok(generators::cnpj(formatted)))?,
-        GenCommand::Cep { formatted, count } => repeat(count, || Ok(generators::cep(formatted)))?,
-        GenCommand::Phone { formatted, count } => {
-            repeat(count, || Ok(generators::phone(formatted)))?
-        }
         GenCommand::Email { domain, count } => repeat(count, || generators::email(&domain))?,
         GenCommand::Name { count } => repeat(count, || Ok(generators::name()))?,
-        GenCommand::Pix { kind, count } => repeat(count, || generators::pix(&kind))?,
         GenCommand::Lorem { words } => vec![generators::lorem(words)?],
     };
     text_out(values.join("\n"), InputOptions::default())
+}
+
+fn dispatch_br(args: BrArgs) -> Result<Outcome> {
+    match args.command {
+        None => text_out(
+            serde_json::to_string_pretty(&countries::br::profile()?).map_err(message)?,
+            InputOptions::default(),
+        ),
+        Some(BrCommand::Cpf(args)) => {
+            dispatch_br_document(args, countries::br::cpf, countries::br::validate_cpf)
+        }
+        Some(BrCommand::Cnpj(args)) => {
+            dispatch_br_document(args, countries::br::cnpj, countries::br::validate_cnpj)
+        }
+        Some(BrCommand::Cep(args)) => text_out(
+            repeat(args.count, || Ok(countries::br::cep(args.formatted)))?.join("\n"),
+            InputOptions::default(),
+        ),
+        Some(BrCommand::Phone(args)) => text_out(
+            repeat(args.count, || Ok(countries::br::phone(args.formatted)))?.join("\n"),
+            InputOptions::default(),
+        ),
+        Some(BrCommand::Pix { kind, count }) => text_out(
+            repeat(count, || countries::br::pix(&kind))?.join("\n"),
+            InputOptions::default(),
+        ),
+    }
+}
+
+fn dispatch_br_document(
+    args: BrDocumentArgs,
+    generate: fn(bool) -> String,
+    validate: fn(&str) -> bool,
+) -> Result<Outcome> {
+    if let Some(value) = args.validate {
+        status_out(validate(&value))
+    } else {
+        text_out(
+            repeat(args.count, || Ok(generate(args.formatted)))?.join("\n"),
+            InputOptions::default(),
+        )
+    }
 }
 
 fn dispatch_json(command: JsonCommand) -> Result<Outcome> {
@@ -957,6 +1004,33 @@ fn read_secret(options: &SecretOptions) -> Result<Vec<u8>> {
     Ok(value)
 }
 
+fn read_password(options: PasswordOptions) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    if let Some(value) = options.passwd {
+        return Ok(zeroize::Zeroizing::new(value.into_bytes()));
+    }
+    if let Some(path) = options.passwd_file {
+        let mut value = fs::read(&path).map_err(|source| VutilsError::Read {
+            path: path.clone(),
+            source,
+        })?;
+        trim_line_ending(&mut value);
+        return Ok(zeroize::Zeroizing::new(value));
+    }
+    if let Some(name) = options.passwd_env {
+        return env::var(&name)
+            .map(String::into_bytes)
+            .map(zeroize::Zeroizing::new)
+            .map_err(|_| {
+                VutilsError::InvalidInput(format!(
+                    "environment variable `{name}` is not set or is not Unicode"
+                ))
+            });
+    }
+    Err(VutilsError::InvalidInput(
+        "provide a password using --passwd, --passwd-file, or --passwd-env".into(),
+    ))
+}
+
 fn trim_line_ending(value: &mut Vec<u8>) {
     while value
         .last()
@@ -1128,6 +1202,15 @@ fn map_hash(value: HashAlgorithmArg) -> security::DigestAlgorithm {
     match value {
         HashAlgorithmArg::Sha256 => security::DigestAlgorithm::Sha256,
         HashAlgorithmArg::Sha512 => security::DigestAlgorithm::Sha512,
+    }
+}
+
+fn map_encryption_algorithm(value: EncryptionAlgorithmArg) -> security::EncryptionAlgorithm {
+    match value {
+        EncryptionAlgorithmArg::Aes256Gcm => security::EncryptionAlgorithm::Aes256Gcm,
+        EncryptionAlgorithmArg::XChaCha20Poly1305 => {
+            security::EncryptionAlgorithm::XChaCha20Poly1305
+        }
     }
 }
 fn map_totp(value: TotpAlgorithmArg) -> security::TotpAlgorithm {
