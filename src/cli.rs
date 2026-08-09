@@ -1,0 +1,951 @@
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand, ValueEnum};
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "vutils",
+    version,
+    about = "Offline, pipeline-friendly developer utilities"
+)]
+#[command(arg_required_else_help = true)]
+pub struct Cli {
+    #[arg(short, long, global = true, help = "Write output to a file")]
+    pub output: Option<PathBuf>,
+    #[arg(long, global = true, help = "Replace the input file atomically")]
+    pub in_place: bool,
+    #[arg(short, long, global = true, help = "Overwrite an existing output file")]
+    pub force: bool,
+    #[arg(long, global = true, help = "Also copy UTF-8 output to the clipboard")]
+    pub copy: bool,
+    #[command(subcommand)]
+    pub command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Command {
+    #[command(about = "Generate UUIDs v1 through v8")]
+    Uuid(UuidArgs),
+    #[command(subcommand, about = "Generate other identifiers")]
+    Id(IdCommand),
+    #[command(subcommand, about = "Generate local test data")]
+    Gen(GenCommand),
+    #[command(subcommand, about = "Validate identifiers and documents")]
+    Validate(ValidateCommand),
+    #[command(subcommand, about = "Encode and decode Base64 data")]
+    Base64(Base64Command),
+    #[command(subcommand, about = "Encode and decode hexadecimal data")]
+    Hex(HexCommand),
+    #[command(subcommand, about = "Encode, decode, and inspect URLs")]
+    Url(UrlCommand),
+    #[command(subcommand, about = "Encode and decode HTML entities")]
+    Html(TextCodecCommand),
+    #[command(subcommand, about = "Compress and decompress GZip data")]
+    Gzip(GzipCommand),
+    #[command(subcommand, about = "Format, query, validate, and convert JSON")]
+    Json(JsonCommand),
+    #[command(subcommand, about = "Format, validate, split, join, and convert YAML")]
+    Yaml(YamlCommand),
+    #[command(subcommand, about = "Format, validate, and convert CSV")]
+    Csv(CsvCommand),
+    #[command(subcommand, about = "Format, validate, and convert TOML")]
+    Toml(TomlCommand),
+    #[command(subcommand, about = "Format and validate XML")]
+    Xml(XmlCommand),
+    #[command(subcommand, about = "Format, validate, and convert dotenv files")]
+    Dotenv(DotenvCommand),
+    #[command(
+        subcommand,
+        about = "Generate strongly typed models from JSON examples"
+    )]
+    Code(CodeCommand),
+    #[command(
+        subcommand,
+        about = "Build and render HTTP requests without sending them"
+    )]
+    Http(HttpCommand),
+    #[command(
+        subcommand,
+        about = "Parse, format, explain, and convert static cURL commands"
+    )]
+    Curl(CurlCommand),
+    #[command(subcommand, about = "Format, inspect, and safely generate SQL")]
+    Sql(SqlCommand),
+    #[command(subcommand, about = "Transform and compare text")]
+    Text(TextCommand),
+    #[command(
+        subcommand,
+        about = "Test, replace, split, and explain regular expressions"
+    )]
+    Regex(RegexCommand),
+    #[command(
+        subcommand,
+        name = "string",
+        about = "Escape and unescape string literals"
+    )]
+    StringValue(StringCommand),
+    #[command(subcommand, about = "Convert integers between common bases")]
+    Number(NumberCommand),
+    #[command(subcommand, about = "Format and parse byte sizes")]
+    Bytes(BytesCommand),
+    #[command(subcommand, about = "Calculate cryptographic hashes")]
+    Hash(HashCommand),
+    #[command(about = "Calculate a keyed message authentication code")]
+    Hmac(HmacArgs),
+    #[command(
+        subcommand,
+        name = "password-hash",
+        about = "Hash and verify passwords"
+    )]
+    PasswordHash(PasswordHashCommand),
+    #[command(subcommand, about = "Generate and inspect offline TOTP codes")]
+    Totp(TotpCommand),
+    #[command(subcommand, about = "Decode JWTs without verifying signatures")]
+    Jwt(JwtCommand),
+    #[command(subcommand, about = "Calculate and verify file or directory checksums")]
+    Checksum(ChecksumCommand),
+    #[command(subcommand, about = "Inspect PEM containers")]
+    Pem(PemCommand),
+    #[command(subcommand, about = "Inspect local PEM-encoded X.509 certificates")]
+    Cert(CertCommand),
+    #[command(subcommand, about = "Convert timestamps, durations, and time zones")]
+    Time(TimeCommand),
+    #[command(subcommand, about = "Explain and calculate cron schedules")]
+    Cron(CronCommand),
+    #[command(subcommand, about = "Encode and decode Unix permission bits")]
+    Chmod(ChmodCommand),
+    #[command(subcommand, about = "Normalize, join, and relativize paths")]
+    Path(PathCommand),
+    #[command(subcommand, about = "Compare and evaluate semantic versions")]
+    Semver(SemverCommand),
+    #[command(subcommand, about = "Inspect IP addresses and CIDR ranges")]
+    Ip(IpCommand),
+    #[command(subcommand, about = "Render QR codes locally")]
+    Qr(QrCommand),
+    #[command(about = "Generate shell completions")]
+    Completion {
+        #[arg(value_enum)]
+        shell: CompletionShell,
+    },
+    #[command(about = "Generate the vutils manual page")]
+    Man,
+    #[command(about = "Look up a MIME type by file extension")]
+    Mime { extension: String },
+}
+
+#[derive(Debug, Args, Clone, Default)]
+pub struct InputOptions {
+    #[arg(value_name = "VALUE", conflicts_with = "input")]
+    pub value: Option<String>,
+    #[arg(short, long, value_name = "PATH", conflicts_with = "value")]
+    pub input: Option<PathBuf>,
+}
+
+#[derive(Debug, Args, Clone, Default)]
+pub struct SecretOptions {
+    #[arg(long, conflicts_with_all = ["secret_file", "secret_env"], help = "Secret value (may be recorded in shell history)")]
+    pub secret: Option<String>,
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["secret", "secret_env"])]
+    pub secret_file: Option<PathBuf>,
+    #[arg(long, value_name = "NAME", conflicts_with_all = ["secret", "secret_file"])]
+    pub secret_env: Option<String>,
+}
+
+#[derive(Debug, Args)]
+pub struct UuidArgs {
+    #[arg(short, long, value_enum, default_value_t = UuidVersionArg::V7)]
+    pub version: UuidVersionArg,
+    #[arg(short, long, default_value_t = 1)]
+    pub count: u32,
+    #[arg(long, value_enum, default_value_t = UuidFormatArg::Hyphenated)]
+    pub format: UuidFormatArg,
+    #[arg(long)]
+    pub namespace: Option<String>,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub node_id: Option<String>,
+    #[arg(long)]
+    pub custom_bytes: Option<String>,
+    #[arg(long, value_enum)]
+    pub domain: Option<DceDomainArg>,
+    #[arg(long)]
+    pub local_id: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum UuidVersionArg {
+    V1,
+    V2,
+    V3,
+    V4,
+    V5,
+    V6,
+    V7,
+    V8,
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum UuidFormatArg {
+    Hyphenated,
+    Simple,
+    Urn,
+    Braced,
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum DceDomainArg {
+    Person,
+    Group,
+    Organization,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum IdCommand {
+    Ulid {
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+    Nanoid {
+        #[arg(short, long, default_value_t = 21)]
+        length: usize,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+    Objectid {
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GenCommand {
+    Password {
+        #[arg(short, long, default_value_t = 20)]
+        length: usize,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+        #[arg(long)]
+        no_symbols: bool,
+        #[arg(long)]
+        exclude_ambiguous: bool,
+    },
+    Token {
+        #[arg(short, long, default_value_t = 32)]
+        length: usize,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+        #[arg(long)]
+        alphabet: Option<String>,
+    },
+    Cpf {
+        #[arg(long)]
+        formatted: bool,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+    Cnpj {
+        #[arg(long)]
+        formatted: bool,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+    Cep {
+        #[arg(long)]
+        formatted: bool,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+    Phone {
+        #[arg(long)]
+        formatted: bool,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+    Email {
+        #[arg(long, default_value = "example.com")]
+        domain: String,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+    Name {
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+    Pix {
+        #[arg(long, default_value = "random")]
+        kind: String,
+        #[arg(short, long, default_value_t = 1)]
+        count: u32,
+    },
+    Lorem {
+        #[arg(short, long, default_value_t = 24)]
+        words: usize,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ValidateCommand {
+    Cpf { value: String },
+    Cnpj { value: String },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum Base64Command {
+    Encode {
+        #[command(flatten)]
+        input: InputOptions,
+        #[arg(long)]
+        url_safe: bool,
+        #[arg(long)]
+        no_padding: bool,
+    },
+    Decode {
+        #[command(flatten)]
+        input: InputOptions,
+        #[arg(long)]
+        url_safe: bool,
+        #[arg(long)]
+        no_padding: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TextCodecCommand {
+    Encode(InputOptions),
+    Decode(InputOptions),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HexCommand {
+    Encode {
+        #[command(flatten)]
+        input: InputOptions,
+        #[arg(long)]
+        uppercase: bool,
+    },
+    Decode(InputOptions),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum UrlCommand {
+    Encode {
+        #[command(flatten)]
+        input: InputOptions,
+        #[arg(long)]
+        form: bool,
+    },
+    Decode {
+        #[command(flatten)]
+        input: InputOptions,
+        #[arg(long)]
+        form: bool,
+    },
+    Inspect(InputOptions),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum GzipCommand {
+    Compress {
+        #[command(flatten)]
+        input: InputOptions,
+        #[arg(short, long, default_value_t = 6)]
+        level: u32,
+    },
+    Decompress(InputOptions),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum JsonCommand {
+    Pretty(InputOptions),
+    Minify(InputOptions),
+    Validate(InputOptions),
+    Escape(InputOptions),
+    Unescape(InputOptions),
+    SortKeys(InputOptions),
+    Flatten(InputOptions),
+    Unflatten(InputOptions),
+    Path {
+        expression: String,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    Diff(DiffArgs),
+    ToYaml(InputOptions),
+    ToCsv {
+        #[command(flatten)]
+        input: InputOptions,
+        #[arg(long)]
+        stringify_nested: bool,
+    },
+    ToToml(InputOptions),
+    SchemaValidate {
+        #[arg(long)]
+        schema: PathBuf,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct DiffArgs {
+    #[arg(long, conflicts_with = "left_file")]
+    pub left: Option<String>,
+    #[arg(long, conflicts_with = "left")]
+    pub left_file: Option<PathBuf>,
+    #[arg(long, conflicts_with = "right_file")]
+    pub right: Option<String>,
+    #[arg(long, conflicts_with = "right")]
+    pub right_file: Option<PathBuf>,
+    #[arg(long)]
+    pub patch: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum YamlCommand {
+    Pretty(InputOptions),
+    Validate(InputOptions),
+    ToJson(InputOptions),
+    Split {
+        #[command(flatten)]
+        input: InputOptions,
+        #[arg(long)]
+        output_dir: Option<PathBuf>,
+    },
+    Join {
+        files: Vec<PathBuf>,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum CsvCommand {
+    Validate(InputOptions),
+    ToJson(InputOptions),
+}
+#[derive(Debug, Subcommand)]
+pub enum TomlCommand {
+    Pretty(InputOptions),
+    Validate(InputOptions),
+    ToJson(InputOptions),
+}
+#[derive(Debug, Subcommand)]
+pub enum XmlCommand {
+    Pretty(InputOptions),
+    Validate(InputOptions),
+}
+#[derive(Debug, Subcommand)]
+pub enum DotenvCommand {
+    Parse(InputOptions),
+    Validate(InputOptions),
+    Sort(InputOptions),
+    Diff {
+        #[command(flatten)]
+        diff: DiffArgs,
+        #[arg(long)]
+        show_values: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CodeCommand {
+    Types {
+        #[arg(short, long, value_enum)]
+        lang: LanguageArg,
+        #[arg(short, long, default_value = "Root")]
+        name: String,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum LanguageArg {
+    Rust,
+    Kotlin,
+    Csharp,
+    Typescript,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HttpCommand {
+    Build(HttpBuildArgs),
+    Render {
+        #[arg(value_enum)]
+        renderer: HttpRendererArg,
+        #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
+        shell: ShellArg,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    FromHar {
+        #[arg(long)]
+        entry: Option<usize>,
+        #[arg(long, value_enum, default_value_t = HttpRendererArg::Curl)]
+        renderer: HttpRendererArg,
+        #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
+        shell: ShellArg,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    Status {
+        code: u16,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct HttpBuildArgs {
+    #[arg(short = 'X', long, default_value = "GET")]
+    pub method: String,
+    pub url: String,
+    #[arg(short = 'H', long = "header")]
+    pub headers: Vec<String>,
+    #[arg(long)]
+    pub json: Option<String>,
+    #[arg(long)]
+    pub data: Option<String>,
+    #[arg(long)]
+    pub body_file: Option<PathBuf>,
+    #[arg(long)]
+    pub follow: bool,
+    #[arg(long)]
+    pub compressed: bool,
+    #[arg(long, value_enum, default_value_t = HttpRendererArg::Curl)]
+    pub render: HttpRendererArg,
+    #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
+    pub shell: ShellArg,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum HttpRendererArg {
+    Curl,
+    Httpie,
+    Fetch,
+    Axios,
+    Json,
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum ShellArg {
+    Posix,
+    Powershell,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CurlCommand {
+    Parse(InputOptions),
+    Format {
+        #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
+        shell: ShellArg,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    Explain {
+        #[arg(long)]
+        show_secrets: bool,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    Convert {
+        #[arg(value_enum)]
+        to: HttpRendererArg,
+        #[arg(long, value_enum, default_value_t = ShellArg::Posix)]
+        shell: ShellArg,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SqlCommand {
+    Format(SqlFormatArgs),
+    Minify {
+        #[command(flatten)]
+        common: SqlCommonArgs,
+        #[arg(long)]
+        strip_comments: bool,
+    },
+    Validate(SqlCommonArgs),
+    Inspect(SqlCommonArgs),
+    Insert {
+        table: String,
+        #[command(flatten)]
+        common: SqlCommonArgs,
+        #[arg(long)]
+        literal: bool,
+        #[arg(long, help = "Treat input as CSV instead of JSON")]
+        csv: bool,
+    },
+    Update {
+        table: String,
+        #[arg(long)]
+        data: String,
+        #[arg(long, value_name = "JSON")]
+        where_data: String,
+        #[arg(long, value_enum, default_value_t = SqlDialectArg::Generic)]
+        dialect: SqlDialectArg,
+        #[arg(long)]
+        literal: bool,
+    },
+    Placeholders {
+        #[arg(long)]
+        target: String,
+        #[command(flatten)]
+        common: SqlCommonArgs,
+    },
+    QuoteIdentifier {
+        value: String,
+        #[arg(long, value_enum, default_value_t = SqlDialectArg::Generic)]
+        dialect: SqlDialectArg,
+    },
+    QuoteLiteral {
+        value: String,
+        #[arg(long, value_enum, default_value_t = SqlDialectArg::Generic)]
+        dialect: SqlDialectArg,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct SqlCommonArgs {
+    #[arg(long, value_enum, default_value_t = SqlDialectArg::Generic)]
+    pub dialect: SqlDialectArg,
+    #[command(flatten)]
+    pub input: InputOptions,
+}
+#[derive(Debug, Args)]
+pub struct SqlFormatArgs {
+    #[command(flatten)]
+    pub common: SqlCommonArgs,
+    #[arg(long, value_enum, default_value_t = KeywordCaseArg::Upper)]
+    pub keyword_case: KeywordCaseArg,
+    #[arg(long, default_value_t = 2)]
+    pub indent: u8,
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum SqlDialectArg {
+    Generic,
+    Postgres,
+    Mysql,
+    Sqlite,
+    Mssql,
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum KeywordCaseArg {
+    Upper,
+    Lower,
+    Preserve,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TextCommand {
+    Case {
+        #[arg(value_enum)]
+        style: CaseArg,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    Slug(InputOptions),
+    Trim(InputOptions),
+    SortLines {
+        #[arg(long)]
+        unique: bool,
+        #[arg(long)]
+        descending: bool,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    UniqueLines(InputOptions),
+    NormalizeEol {
+        #[arg(long)]
+        crlf: bool,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    Diff(DiffArgs),
+    Unicode(InputOptions),
+    OnlyDigits(InputOptions),
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum CaseArg {
+    Camel,
+    Pascal,
+    Snake,
+    Kebab,
+    Constant,
+    Title,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RegexCommand {
+    Test {
+        pattern: String,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    Replace {
+        pattern: String,
+        replacement: String,
+        #[arg(long)]
+        first_only: bool,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum StringCommand {
+    Escape {
+        #[arg(long, value_enum)]
+        language: EscapeLanguageArg,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    Unescape {
+        #[arg(long, value_enum)]
+        language: EscapeLanguageArg,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum EscapeLanguageArg {
+    Json,
+    Rust,
+    Kotlin,
+    Java,
+    Csharp,
+    Javascript,
+    Typescript,
+    Python,
+    Sql,
+    PosixShell,
+}
+#[derive(Debug, Subcommand)]
+pub enum NumberCommand {
+    Convert {
+        value: String,
+        #[arg(long)]
+        from: u32,
+        #[arg(long)]
+        to: u32,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum BytesCommand {
+    Format {
+        value: u128,
+        #[arg(long)]
+        iec: bool,
+        #[arg(long, default_value_t = 2)]
+        precision: usize,
+    },
+    Parse {
+        value: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum HashCommand {
+    Sha256(InputOptions),
+    Sha512(InputOptions),
+}
+#[derive(Debug, Args)]
+pub struct HmacArgs {
+    #[arg(long, value_enum, default_value_t = HashAlgorithmArg::Sha256)]
+    pub algorithm: HashAlgorithmArg,
+    #[command(flatten)]
+    pub secret: SecretOptions,
+    #[command(flatten)]
+    pub input: InputOptions,
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum HashAlgorithmArg {
+    Sha256,
+    Sha512,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PasswordHashCommand {
+    Argon2Hash {
+        #[command(flatten)]
+        secret: SecretOptions,
+    },
+    Argon2Verify {
+        encoded: String,
+        #[command(flatten)]
+        secret: SecretOptions,
+    },
+    BcryptHash {
+        #[arg(long, default_value_t = 12)]
+        cost: u32,
+        #[command(flatten)]
+        secret: SecretOptions,
+    },
+    BcryptVerify {
+        encoded: String,
+        #[command(flatten)]
+        secret: SecretOptions,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TotpCommand {
+    GenerateSecret {
+        #[arg(long, default_value_t = 20)]
+        bytes: usize,
+    },
+    Code {
+        #[command(flatten)]
+        secret: SecretOptions,
+        #[arg(long, value_enum, default_value_t = TotpAlgorithmArg::Sha1)]
+        algorithm: TotpAlgorithmArg,
+        #[arg(long, default_value_t = 6)]
+        digits: u32,
+        #[arg(long, default_value_t = 30)]
+        period: u64,
+        #[arg(long)]
+        timestamp: Option<u64>,
+    },
+    Verify {
+        code: String,
+        #[command(flatten)]
+        secret: SecretOptions,
+        #[arg(long, value_enum, default_value_t = TotpAlgorithmArg::Sha1)]
+        algorithm: TotpAlgorithmArg,
+        #[arg(long, default_value_t = 6)]
+        digits: u32,
+        #[arg(long, default_value_t = 30)]
+        period: u64,
+        #[arg(long)]
+        timestamp: Option<u64>,
+        #[arg(long, default_value_t = 1)]
+        window: u64,
+    },
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum TotpAlgorithmArg {
+    Sha1,
+    Sha256,
+    Sha512,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum JwtCommand {
+    Decode(InputOptions),
+}
+#[derive(Debug, Subcommand)]
+pub enum ChecksumCommand {
+    File {
+        path: PathBuf,
+        #[arg(long, value_enum, default_value_t = HashAlgorithmArg::Sha256)]
+        algorithm: HashAlgorithmArg,
+    },
+    Directory {
+        path: PathBuf,
+        #[arg(long, value_enum, default_value_t = HashAlgorithmArg::Sha256)]
+        algorithm: HashAlgorithmArg,
+        #[arg(long)]
+        follow_links: bool,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum PemCommand {
+    Inspect(InputOptions),
+}
+#[derive(Debug, Subcommand)]
+pub enum CertCommand {
+    Inspect(InputOptions),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum TimeCommand {
+    Now {
+        #[arg(long, value_enum, default_value_t = TimeUnitArg::Seconds)]
+        unit: TimeUnitArg,
+    },
+    ToIso {
+        value: i64,
+        #[arg(long, value_enum, default_value_t = TimeUnitArg::Seconds)]
+        unit: TimeUnitArg,
+    },
+    ToUnix {
+        value: String,
+        #[arg(long, value_enum, default_value_t = TimeUnitArg::Seconds)]
+        unit: TimeUnitArg,
+    },
+    Duration {
+        value: String,
+    },
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum TimeUnitArg {
+    Seconds,
+    Milliseconds,
+}
+#[derive(Debug, Subcommand)]
+pub enum CronCommand {
+    Next {
+        expression: String,
+        #[arg(short, long, default_value_t = 5)]
+        count: usize,
+    },
+    Explain {
+        expression: String,
+        #[arg(short, long, default_value_t = 5)]
+        count: usize,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum ChmodCommand {
+    Encode { value: String },
+    Decode { value: String },
+}
+#[derive(Debug, Subcommand)]
+pub enum PathCommand {
+    Normalize { value: PathBuf },
+    Relative { from: PathBuf, to: PathBuf },
+}
+#[derive(Debug, Subcommand)]
+pub enum SemverCommand {
+    Compare { left: String, right: String },
+    Sort { versions: Vec<String> },
+    Bump { value: String, kind: String },
+}
+#[derive(Debug, Subcommand)]
+pub enum IpCommand {
+    Cidr { value: String },
+}
+#[derive(Debug, Subcommand)]
+pub enum QrCommand {
+    Generate {
+        #[arg(long, value_enum, default_value_t = QrFormatArg::Terminal)]
+        format: QrFormatArg,
+        #[arg(
+            long,
+            default_value_t = 256,
+            help = "Image size in pixels (SVG/PNG only)"
+        )]
+        size: u32,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum QrFormatArg {
+    Terminal,
+    Svg,
+    Png,
+}
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum CompletionShell {
+    Bash,
+    Zsh,
+    Fish,
+    Powershell,
+    Elvish,
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::CommandFactory as _;
+
+    use super::Cli;
+
+    #[test]
+    fn command_tree_is_internally_consistent() {
+        Cli::command().debug_assert();
+    }
+}
