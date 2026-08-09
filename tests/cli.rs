@@ -11,6 +11,120 @@ fn vutils_with_config(path: &std::path::Path) -> Command {
 }
 
 #[test]
+fn author_flag_prints_package_metadata_without_a_subcommand() {
+    let output = vutils().arg("--author").output().unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        format!("{}\n", env!("CARGO_PKG_AUTHORS"))
+    );
+    assert!(output.stderr.is_empty());
+
+    let help = vutils().arg("--help").output().unwrap();
+    assert!(help.status.success());
+    assert!(String::from_utf8(help.stdout).unwrap().contains("--author"));
+
+    let missing_subcommand = vutils().arg("--copy").output().unwrap();
+    assert!(!missing_subcommand.status.success());
+    assert!(
+        String::from_utf8(missing_subcommand.stderr)
+            .unwrap()
+            .contains("a subcommand is required")
+    );
+}
+
+#[test]
+fn config_help_documents_every_supported_default() {
+    let output = vutils().args(["config", "--help"]).output().unwrap();
+
+    assert!(output.status.success());
+    let help = String::from_utf8(output.stdout).unwrap();
+    for key in [
+        "sql.dialect",
+        "uuid.version",
+        "uuid.format",
+        "crypto.algorithm",
+        "crypto.password-env",
+        "crypto.password-file",
+    ] {
+        assert!(help.contains(key), "config help is missing key {key}");
+    }
+    for value in [
+        "generic",
+        "postgres",
+        "mysql",
+        "sqlite",
+        "mssql",
+        "v1, v2, v3, v4, v5, v6, v7, v8",
+        "hyphenated, simple, urn, braced",
+        "xchacha20-poly1305, aes-256-gcm",
+    ] {
+        assert!(help.contains(value), "config help is missing value {value}");
+    }
+    for guidance in [
+        "explicit command flag > persisted config > built-in default",
+        "Passwords are never stored directly",
+        "mutually exclusive",
+        "VUTILS_CONFIG",
+        "vutils config set",
+    ] {
+        assert!(
+            help.contains(guidance),
+            "config help is missing guidance {guidance}"
+        );
+    }
+
+    let directory = tempfile::tempdir().unwrap();
+    let config_path = directory.path().join("config.toml");
+    let documented_values = [
+        (
+            "sql.dialect",
+            "generic postgres mysql sqlite mssql postgresql sqlserver sql-server",
+        ),
+        ("uuid.version", "v1 v2 v3 v4 v5 v6 v7 v8"),
+        ("uuid.format", "hyphenated simple urn braced hyphen brace"),
+        (
+            "crypto.algorithm",
+            "xchacha20-poly1305 aes-256-gcm xchacha20 xchacha aes256-gcm aes",
+        ),
+    ];
+    for (key, values) in documented_values {
+        for value in values.split_ascii_whitespace() {
+            let set = vutils_with_config(&config_path)
+                .args(["config", "set", key, value])
+                .output()
+                .unwrap();
+            assert!(
+                set.status.success(),
+                "documented config value {key}={value} was rejected: {}",
+                String::from_utf8_lossy(&set.stderr)
+            );
+        }
+    }
+
+    for (key, value) in [
+        ("sql-dialect", "generic"),
+        ("uuid-version", "v7"),
+        ("uuid-format", "hyphenated"),
+        ("crypto-algorithm", "xchacha20-poly1305"),
+        ("enc.algorithm", "aes-256-gcm"),
+        ("enc.password-env", "VUTILS_PASSWORD"),
+        ("enc.password-file", "password.txt"),
+    ] {
+        let set = vutils_with_config(&config_path)
+            .args(["config", "set", key, value])
+            .output()
+            .unwrap();
+        assert!(
+            set.status.success(),
+            "documented config alias {key} was rejected: {}",
+            String::from_utf8_lossy(&set.stderr)
+        );
+    }
+}
+
+#[test]
 fn formats_json_from_stdin() {
     let output = vutils()
         .args(["json", "pretty"])

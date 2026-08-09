@@ -68,6 +68,8 @@ sha256sum -c SHA256SUMS --ignore-missing
 
 Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust, Cargo, or a network connection.
 
+Use `vutils --version`, `vutils --author`, or `vutils --help` to inspect the installed CLI metadata.
+
 ## Input and output
 
 Transformations accept a positional value, `--input <path>`, or stdin. Output is written to stdout by default.

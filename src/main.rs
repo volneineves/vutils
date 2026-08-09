@@ -22,13 +22,26 @@ struct Outcome {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if cli.author {
+        println!("{}", env!("CARGO_PKG_AUTHORS"));
+        return ExitCode::SUCCESS;
+    }
+
     let output = OutputArgs {
         output: cli.output,
         in_place: cli.in_place,
         force: cli.force,
         copy: cli.copy,
     };
-    let result = match cli.command {
+    let Some(command) = cli.command else {
+        Cli::command()
+            .error(
+                clap::error::ErrorKind::MissingSubcommand,
+                "a subcommand is required unless --author is present",
+            )
+            .exit();
+    };
+    let result = match command {
         Command::Config(command) => dispatch_config(command),
         command => UserConfig::load().and_then(|config| dispatch(command, &config)),
     };

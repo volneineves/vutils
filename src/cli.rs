@@ -2,6 +2,60 @@ use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+const CONFIG_LONG_HELP: &str = r#"Manage validated defaults used by vutils commands.
+
+Precedence: explicit command flag > persisted config > built-in default.
+
+CONFIG KEYS:
+  sql.dialect
+    Values: generic, postgres, mysql, sqlite, mssql
+    Default: generic
+    Aliases: postgresql; sqlserver and sql-server normalize to mssql
+
+  uuid.version
+    Values: v1, v2, v3, v4, v5, v6, v7, v8
+    Default: v7
+
+  uuid.format
+    Values: hyphenated, simple, urn, braced
+    Default: hyphenated
+    Aliases: hyphen, brace
+
+  crypto.algorithm
+    Values: xchacha20-poly1305, aes-256-gcm
+    Default for new encryption: xchacha20-poly1305
+    Aliases: xchacha20, xchacha, aes256-gcm, aes
+
+  crypto.password-env
+    Value: name of an environment variable containing the password
+    Default: not set
+
+  crypto.password-file
+    Value: path to a file containing the password
+    Default: not set; relative paths use the config file directory
+
+Passwords are never stored directly in config.toml. password-env and password-file
+are mutually exclusive; setting either one clears the other. Decryption detects the
+algorithm stored in the encrypted envelope.
+
+KEY ALIASES:
+  sql-dialect, uuid-version, uuid-format, crypto-algorithm
+  enc.algorithm, enc.password-env, enc.password-file
+
+CONFIG LOCATION:
+  Linux: $XDG_CONFIG_HOME/vutils/config.toml or ~/.config/vutils/config.toml
+  macOS: ~/Library/Application Support/vutils/config.toml
+  Override: set VUTILS_CONFIG to an explicit file path
+
+EXAMPLES:
+  vutils config path
+  vutils config list
+  vutils config get sql.dialect
+  vutils config set sql.dialect postgres
+  vutils config set uuid.version v4
+  vutils config set crypto.password-env VUTILS_PASSWORD
+  vutils config unset uuid.version"#;
+
 #[derive(Debug, Parser)]
 #[command(
     name = "vutils",
@@ -10,6 +64,8 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 )]
 #[command(arg_required_else_help = true)]
 pub struct Cli {
+    #[arg(long, exclusive = true, help = "Print package author information")]
+    pub author: bool,
     #[arg(short, long, global = true, help = "Write output to a file")]
     pub output: Option<PathBuf>,
     #[arg(long, global = true, help = "Replace the input file atomically")]
@@ -19,7 +75,7 @@ pub struct Cli {
     #[arg(long, global = true, help = "Also copy UTF-8 output to the clipboard")]
     pub copy: bool,
     #[command(subcommand)]
-    pub command: Command,
+    pub command: Option<Command>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -32,7 +88,11 @@ pub enum Command {
     Gen(GenCommand),
     #[command(about = "Generate and validate Brazilian development fixtures")]
     Br(BrArgs),
-    #[command(subcommand, about = "Manage persistent per-user defaults")]
+    #[command(
+        subcommand,
+        about = "Manage persistent per-user defaults",
+        long_about = CONFIG_LONG_HELP
+    )]
     Config(ConfigCommand),
     #[command(subcommand, about = "Encode and decode Base64 data")]
     Base64(Base64Command),
@@ -1006,6 +1066,14 @@ mod tests {
     }
 
     #[test]
+    fn author_flag_does_not_require_a_subcommand() {
+        let cli = Cli::try_parse_from(["vutils", "--author"]).unwrap();
+
+        assert!(cli.author);
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
     fn case_styles_accept_code_spelling_aliases() {
         let examples = [
             ("camelCase", CaseArg::Camel),
@@ -1019,7 +1087,7 @@ mod tests {
         for (alias, expected) in examples {
             let cli =
                 Cli::try_parse_from(["vutils", "text", "case", alias, "hello world"]).unwrap();
-            let Command::Text(TextCommand::Case { style, .. }) = cli.command else {
+            let Some(Command::Text(TextCommand::Case { style, .. })) = cli.command else {
                 panic!("expected text case command");
             };
             assert_eq!(style, expected);
