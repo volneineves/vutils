@@ -855,6 +855,17 @@ fn read_text(input: &InputOptions) -> Result<String> {
     vutils::io::read_text(&map_input(input))
 }
 fn map_input(input: &InputOptions) -> InputArgs {
+    if !input.literal
+        && input.input.is_none()
+        && let Some(path) = input.value.as_deref().map(PathBuf::from)
+        && path.is_file()
+    {
+        return InputArgs {
+            value: None,
+            input: Some(path),
+        };
+    }
+
     InputArgs {
         value: input.value.clone(),
         input: input.input.clone(),

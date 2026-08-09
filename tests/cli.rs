@@ -145,6 +145,58 @@ fn formats_json_from_stdin() {
 }
 
 #[test]
+fn existing_positional_file_is_read_and_can_be_updated_in_place() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("value.json");
+    fs::write(&path, r#"{"name":"Ana"}"#).unwrap();
+
+    let formatted = vutils()
+        .args(["json", "pretty"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(formatted.status.success());
+    assert_eq!(
+        String::from_utf8(formatted.stdout).unwrap(),
+        "{\n  \"name\": \"Ana\"\n}\n"
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), r#"{"name":"Ana"}"#);
+
+    let updated = vutils()
+        .args(["--in-place", "json", "pretty"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(updated.status.success());
+    assert_eq!(
+        fs::read_to_string(&path).unwrap(),
+        "{\n  \"name\": \"Ana\"\n}\n"
+    );
+}
+
+#[test]
+fn literal_flag_disambiguates_an_existing_file_name() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("input.txt");
+    fs::write(&path, "contents from file").unwrap();
+
+    let detected_file = vutils().args(["text", "trim"]).arg(&path).output().unwrap();
+    assert!(detected_file.status.success());
+    assert_eq!(detected_file.stdout, b"contents from file\n");
+
+    let forced_literal = vutils()
+        .args(["text", "trim", "--literal"])
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(forced_literal.status.success());
+    assert_eq!(
+        String::from_utf8(forced_literal.stdout).unwrap(),
+        format!("{}\n", path.display())
+    );
+}
+
+#[test]
 fn in_place_failure_preserves_source() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("broken.json");

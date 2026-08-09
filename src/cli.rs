@@ -197,10 +197,27 @@ pub enum Command {
 
 #[derive(Debug, Args, Clone, Default)]
 pub struct InputOptions {
-    #[arg(value_name = "VALUE", conflicts_with = "input")]
+    #[arg(
+        value_name = "VALUE_OR_PATH",
+        conflicts_with = "input",
+        help = "Literal input, or an existing file path unless --literal is used"
+    )]
     pub value: Option<String>,
-    #[arg(short, long, value_name = "PATH", conflicts_with = "value")]
+    #[arg(
+        short,
+        long,
+        value_name = "PATH",
+        conflicts_with = "value",
+        help = "Read input from this file explicitly"
+    )]
     pub input: Option<PathBuf>,
+    #[arg(
+        long,
+        requires = "value",
+        conflicts_with = "input",
+        help = "Treat VALUE_OR_PATH as literal text even when it names an existing file"
+    )]
+    pub literal: bool,
 }
 
 #[derive(Debug, Args, Clone, Default)]
