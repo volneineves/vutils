@@ -290,11 +290,11 @@ pub fn config_path() -> Result<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         let home = env::var_os("HOME").ok_or_else(missing_home_error)?;
-        return Ok(PathBuf::from(home)
+        Ok(PathBuf::from(home)
             .join("Library")
             .join("Application Support")
             .join("vutils")
-            .join("config.toml"));
+            .join("config.toml"))
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]
