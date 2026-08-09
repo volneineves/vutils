@@ -9,12 +9,9 @@ Download the artifact for your system from [GitHub Releases](https://github.com/
 ### Debian and Ubuntu
 
 ```bash
-(
-  VUTILS_TMP_DIR="$(mktemp -d)"
-  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
-  curl -fL -o "$VUTILS_TMP_DIR/vutils.deb" https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-amd64.deb
-  sudo apt install "$VUTILS_TMP_DIR/vutils.deb"
-)
+curl -fL -o vutils-latest-amd64.deb https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-amd64.deb
+sudo apt install ./vutils-latest-amd64.deb
+rm -f ./vutils-latest-amd64.deb
 vutils --version
 ```
 
@@ -23,27 +20,21 @@ The URL always follows the newest stable GitHub release and ignores prereleases 
 ### Fedora, RHEL, Rocky Linux, and openSUSE
 
 ```bash
-(
-  VUTILS_TMP_DIR="$(mktemp -d)"
-  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
-  curl -fL -o "$VUTILS_TMP_DIR/vutils.rpm" https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-x86_64.rpm
-  sudo dnf install "$VUTILS_TMP_DIR/vutils.rpm"
-)
+curl -fL -o vutils-latest-x86_64.rpm https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-x86_64.rpm
+sudo dnf install ./vutils-latest-x86_64.rpm
+rm -f ./vutils-latest-x86_64.rpm
 vutils --version
 ```
 
-On systems without `dnf`, replace the install line inside the block with `sudo rpm -U "$VUTILS_TMP_DIR/vutils.rpm"`.
+On systems without `dnf`, replace the install line with `sudo rpm -U ./vutils-latest-x86_64.rpm`.
 
 ### Portable Linux binary
 
 ```bash
-(
-  VUTILS_TMP_DIR="$(mktemp -d)"
-  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
-  curl -fL -o "$VUTILS_TMP_DIR/vutils.tar.gz" https://github.com/volneineves/vutils/releases/latest/download/vutils-linux-x86_64.tar.gz
-  tar -xzf "$VUTILS_TMP_DIR/vutils.tar.gz" -C "$VUTILS_TMP_DIR"
-  sudo install -m 0755 "$VUTILS_TMP_DIR/vutils" /usr/local/bin/vutils
-)
+curl -fL -o vutils-linux-x86_64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-linux-x86_64.tar.gz
+tar -xzf vutils-linux-x86_64.tar.gz ./vutils
+sudo install -m 0755 vutils /usr/local/bin/vutils
+rm -f ./vutils-linux-x86_64.tar.gz ./vutils
 vutils --version
 ```
 
@@ -54,26 +45,20 @@ The raw `vutils-linux-x86_64` asset is also available; make it executable with `
 Apple Silicon:
 
 ```bash
-(
-  VUTILS_TMP_DIR="$(mktemp -d)"
-  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
-  curl -fL -o "$VUTILS_TMP_DIR/vutils.tar.gz" https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-aarch64.tar.gz
-  tar -xzf "$VUTILS_TMP_DIR/vutils.tar.gz" -C "$VUTILS_TMP_DIR"
-  sudo install -m 0755 "$VUTILS_TMP_DIR/vutils" /usr/local/bin/vutils
-)
+curl -fL -o vutils-macos-aarch64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-aarch64.tar.gz
+tar -xzf vutils-macos-aarch64.tar.gz ./vutils
+sudo install -m 0755 vutils /usr/local/bin/vutils
+rm -f ./vutils-macos-aarch64.tar.gz ./vutils
 vutils --version
 ```
 
 Intel Mac:
 
 ```bash
-(
-  VUTILS_TMP_DIR="$(mktemp -d)"
-  trap 'rm -rf "$VUTILS_TMP_DIR"' EXIT
-  curl -fL -o "$VUTILS_TMP_DIR/vutils.tar.gz" https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-x86_64.tar.gz
-  tar -xzf "$VUTILS_TMP_DIR/vutils.tar.gz" -C "$VUTILS_TMP_DIR"
-  sudo install -m 0755 "$VUTILS_TMP_DIR/vutils" /usr/local/bin/vutils
-)
+curl -fL -o vutils-macos-x86_64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-x86_64.tar.gz
+tar -xzf vutils-macos-x86_64.tar.gz ./vutils
+sudo install -m 0755 vutils /usr/local/bin/vutils
+rm -f ./vutils-macos-x86_64.tar.gz ./vutils
 vutils --version
 ```
 
@@ -93,16 +78,18 @@ Use `vutils --version`, `vutils --author`, or `vutils --help` to inspect the ins
 
 ## Input and output
 
-Transformations accept a positional value, `--input <path>`, or stdin. Output is written to stdout by default.
+Transformations accept a positional value or existing file path, an explicit `--input <path>`, or stdin. Existing regular files are detected automatically; use `--literal` when text that happens to match a file name must not be read from disk. Output is written to stdout by default.
 
 ```bash
 printf '%s' '{"name":"Ana"}' | vutils json pretty
-vutils json to-yaml --input payload.json --output payload.yaml
-vutils json pretty --input payload.json --in-place
+vutils json pretty ./payload.json
+vutils json to-yaml payload.json --output payload.yaml
+vutils --in-place json pretty payload.json
+vutils text trim --literal README.md
 vutils base64 decode 'AAEC' --output bytes.bin
 ```
 
-`--in-place` writes a temporary file beside the source and replaces the original only after successful transformation. `--output` refuses to overwrite an existing file unless `--force` is present. `--copy` additionally copies UTF-8 output to the local clipboard.
+`--input` remains useful when a missing or unreadable path must produce a filesystem error instead of being treated as literal input. `--in-place` writes a temporary file beside the detected or explicit source and replaces the original only after successful transformation. `--output` refuses to overwrite an existing file unless `--force` is present. `--copy` additionally copies UTF-8 output to the local clipboard.
 
 ## Persistent defaults
 
