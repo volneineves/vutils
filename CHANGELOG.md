@@ -20,6 +20,7 @@ All notable changes to this project are documented here. The format follows Keep
 - Dimmed input examples that behave as placeholders instead of submitted content.
 - Typed TUI coverage for every operational CLI leaf command, with an automated catalog-coverage regression test.
 - Guided Encrypt/Decrypt password sources with configured-source prefill, masked direct secrets, redacted command previews, and child-process argument protection.
+- Safe `q` quit confirmation with a default **No** selection, keyboard navigation, and explicit cancel/confirm shortcuts.
 
 ### Changed
 

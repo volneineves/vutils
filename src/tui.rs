@@ -217,6 +217,7 @@ struct App {
     run_state: RunState,
     status: String,
     command: Option<Editor>,
+    quit_confirmation: Option<bool>,
     show_help: bool,
     should_quit: bool,
 }
@@ -257,6 +258,7 @@ impl App {
             run_state: RunState::Idle,
             status: status.unwrap_or_else(|| tool.description.into()),
             command: None,
+            quit_confirmation: None,
             show_help: false,
             should_quit: false,
         }
@@ -700,6 +702,50 @@ impl App {
             self.should_quit = true;
         }
     }
+
+    fn start_quit_confirmation(&mut self) {
+        if self.is_running() {
+            self.status = "Wait for the running command before quitting".into();
+        } else {
+            self.quit_confirmation = Some(false);
+            self.status = "Confirm quit · ←/→ chooses · Enter confirms · Esc cancels".into();
+        }
+    }
+
+    fn handle_quit_confirmation(&mut self, key: KeyEvent) {
+        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+            self.quit_confirmation = None;
+            self.should_quit = true;
+            return;
+        }
+        let Some(selected_yes) = self.quit_confirmation.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Char('h') | KeyCode::Left => *selected_yes = false,
+            KeyCode::Char('l') | KeyCode::Right => *selected_yes = true,
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Char(' ') => {
+                *selected_yes = !*selected_yes;
+            }
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                self.quit_confirmation = None;
+                self.should_quit = true;
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Char('q') | KeyCode::Esc => {
+                self.quit_confirmation = None;
+                self.status = self.tool().description.into();
+            }
+            KeyCode::Enter if *selected_yes => {
+                self.quit_confirmation = None;
+                self.should_quit = true;
+            }
+            KeyCode::Enter => {
+                self.quit_confirmation = None;
+                self.status = self.tool().description.into();
+            }
+            _ => {}
+        }
+    }
 }
 
 pub fn run() -> Result<()> {
@@ -742,9 +788,16 @@ fn run_app(terminal: &mut DefaultTerminal) -> io::Result<()> {
 }
 
 fn handle_key(app: &mut App, key: KeyEvent) {
+    if app.quit_confirmation.is_some() {
+        app.handle_quit_confirmation(key);
+        return;
+    }
+
     if app.show_help {
-        if matches!(key.code, KeyCode::Esc | KeyCode::Char('?')) {
-            app.show_help = false;
+        match key.code {
+            KeyCode::Char('q') => app.start_quit_confirmation(),
+            KeyCode::Esc | KeyCode::Char('?') => app.show_help = false,
+            _ => {}
         }
         return;
     }
@@ -804,7 +857,7 @@ fn handle_key(app: &mut App, key: KeyEvent) {
             return;
         }
         KeyCode::Char('q') if app.focus != Focus::Input => {
-            app.request_quit();
+            app.start_quit_confirmation();
             return;
         }
         KeyCode::Char('?') if app.focus != Focus::Input => {
@@ -931,6 +984,9 @@ fn render(frame: &mut Frame, app: &App) {
 
     if app.show_help {
         render_help(frame, area);
+    }
+    if let Some(selected_yes) = app.quit_confirmation {
+        render_quit_confirmation(frame, area, selected_yes);
     }
 }
 
@@ -1328,7 +1384,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
         "",
         "Execution",
         "  Ctrl-R / F5 run · y copy UTF-8 output",
-        "  q / Ctrl-C quits when no command is running",
+        "  q opens quit confirmation · Ctrl-C quits directly",
         "",
         "Preview shows exact CLI arguments · ? / Esc closes help.",
     ]
@@ -1337,6 +1393,38 @@ fn render_help(frame: &mut Frame, area: Rect) {
         Paragraph::new(help)
             .block(panel(" Help ".into(), true).padding(Padding::uniform(1)))
             .wrap(Wrap { trim: false }),
+        popup,
+    );
+}
+
+fn render_quit_confirmation(frame: &mut Frame, area: Rect, selected_yes: bool) {
+    let width = area.width.saturating_sub(4).min(46);
+    let height = area.height.saturating_sub(2).min(7);
+    let popup = Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    };
+    let selected = Style::default()
+        .fg(Color::Black)
+        .bg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
+    let idle = Style::default().fg(Color::Gray);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(
+        Paragraph::new(vec![
+            Line::from("Quit vutils TUI?").alignment(Alignment::Center),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(" No ", if selected_yes { idle } else { selected }),
+                Span::raw("     "),
+                Span::styled(" Yes ", if selected_yes { selected } else { idle }),
+            ])
+            .alignment(Alignment::Center),
+            Line::from("←/→ choose · Enter confirm · Esc cancel").alignment(Alignment::Center),
+        ])
+        .block(panel(" Confirm quit ".into(), true).padding(Padding::horizontal(1))),
         popup,
     );
 }
@@ -1762,7 +1850,7 @@ mod tests {
     }
 
     #[test]
-    fn quit_shortcut_is_global_except_while_editing_input() {
+    fn quit_shortcut_confirms_except_while_editing_input() {
         let mut app = app();
         app.focus = Focus::Input;
         handle_key(
@@ -1777,7 +1865,48 @@ mod tests {
             &mut app,
             KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
         );
+        assert_eq!(app.quit_confirmation, Some(false));
+        assert!(!app.should_quit);
+
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(app.quit_confirmation, None);
+        assert!(!app.should_quit);
+
+        app.show_help = true;
+        press(&mut app, KeyCode::Char('q'));
+        assert_eq!(app.quit_confirmation, Some(false));
+        press(&mut app, KeyCode::Esc);
+
+        press(&mut app, KeyCode::Char('q'));
+        press(&mut app, KeyCode::Right);
+        press(&mut app, KeyCode::Enter);
         assert!(app.should_quit);
+    }
+
+    #[test]
+    fn quit_confirmation_is_visible_and_can_be_cancelled() {
+        let backend = TestBackend::new(MIN_WIDTH, MIN_HEIGHT);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = app();
+        press(&mut app, KeyCode::Char('q'));
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Quit vutils TUI?"));
+        assert!(rendered.contains("No"));
+        assert!(rendered.contains("Yes"));
+        assert!(rendered.contains("Esc cancel"));
+
+        press(&mut app, KeyCode::Esc);
+        assert_eq!(app.quit_confirmation, None);
+        assert!(!app.should_quit);
     }
 
     #[test]
