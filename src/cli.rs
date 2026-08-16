@@ -27,7 +27,8 @@ CONFIG KEYS:
     Aliases: xchacha20, xchacha, aes256-gcm, aes
 
   crypto.password-env
-    Value: name of an environment variable containing the password
+    Value: name of an environment variable whose value is a secret passphrase or text
+    Purpose: automate enc and dec without storing that secret in config.toml
     Default: not set
 
   crypto.password-file
@@ -47,9 +48,11 @@ CONFIG KEYS:
     Value: path to a local OpenAPI 3.x .json, .yaml, or .yml file
     Default: not set
 
-Passwords are never stored directly in config.toml. password-env and password-file
-are mutually exclusive; setting either one clears the other. Decryption detects the
-algorithm stored in the encrypted envelope.
+Passwords and passphrases are never stored directly in config.toml. password-env
+stores only the environment-variable name; that variable's secret text is used to
+automate enc and dec. password-env and password-file are mutually exclusive; setting
+either one clears the other. Decryption detects the algorithm stored in the encrypted
+envelope.
 
 KEY ALIASES:
   sql-dialect, uuid-version, uuid-format, crypto-algorithm

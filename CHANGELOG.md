@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-08-16
+
+### Changed
+
+- Clarified throughout the TUI, CLI help, and documentation that `crypto.password-env` stores only an environment-variable name; the variable value is a secret passphrase or text used to automate `enc` and `dec`.
+
 ## [0.5.0] - 2026-08-16
 
 ### Added

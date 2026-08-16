@@ -208,7 +208,9 @@ fn config_help_documents_every_supported_default() {
     }
     for guidance in [
         "explicit command flag > persisted config > built-in default",
-        "Passwords are never stored directly",
+        "Passwords and passphrases are never stored directly",
+        "stores only the environment-variable name",
+        "automate enc and dec",
         "mutually exclusive",
         "VUTILS_CONFIG",
         "vutils config set",

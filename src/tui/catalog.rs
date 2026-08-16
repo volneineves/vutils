@@ -1353,7 +1353,7 @@ const PASSWORD_SOURCE_FIELDS: &[FieldDef] = &[
     FieldDef {
         key: "password_env",
         label: "Environment",
-        help: "Name of the environment variable containing the password",
+        help: "Variable name only; its secret passphrase or text automates enc and dec",
         kind: FieldKind::Text {
             default: "VUTILS_PASSWORD",
             required: true,
@@ -1495,7 +1495,7 @@ const CONFIG_CRYPTO_FIELDS: &[FieldDef] = &[config_choice_field(
 const CONFIG_PASSWORD_ENV_FIELDS: &[FieldDef] = &[config_text_field(
     "value",
     "Environment",
-    "Environment variable containing the password; setting it clears Password file",
+    "Only the variable name is saved; its secret phrase/text automates enc/dec. Clears Password file",
     "VUTILS_PASSWORD",
 )];
 const CONFIG_PASSWORD_FILE_FIELDS: &[FieldDef] = &[config_text_field(
@@ -3159,7 +3159,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
     ToolDef {
         category: Category::Configuration,
         name: "Password environment",
-        description: "Set the password environment-variable source",
+        description: "Set the environment-variable name used to automate enc and dec",
         base: &["config", "set", "crypto.password-env"],
         fields: CONFIG_PASSWORD_ENV_FIELDS,
         uses_input: false,

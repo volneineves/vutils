@@ -174,7 +174,7 @@ vutils config unset uuid.format
 | `uuid.version` | `v1` through `v8` | `v7` |
 | `uuid.format` | `hyphenated`, `simple`, `urn`, `braced` | `hyphenated` |
 | `crypto.algorithm` | `xchacha20-poly1305`, `aes-256-gcm` | `xchacha20-poly1305` for `enc` |
-| `crypto.password-env` | Environment variable name | not set |
+| `crypto.password-env` | Environment-variable name only; its value is the secret passphrase or text for `enc`/`dec` | not set |
 | `crypto.password-file` | Local file path | not set |
 | `tui.home` | Comma-separated operation IDs | `json.pretty,uuid,gen.password,enc,dec,config.list` |
 | `vruno.collection` | Bruno collection directory | not set |
@@ -209,13 +209,15 @@ vutils vruno check --format json --group-by path
 Passwords are never stored directly in `config.toml`. Configure a source instead:
 
 ```bash
-export VUTILS_PASSWORD='use-a-strong-password'
+# The variable value is a reusable secret passphrase/text, not a login password.
+export VUTILS_PASSWORD='my-encryption-passphrase'
+# vutils persists only the variable name "VUTILS_PASSWORD".
 vutils config set crypto.password-env VUTILS_PASSWORD
 ENCRYPTED="$(vutils enc 'Texto secreto')"  # reads VUTILS_PASSWORD
 vutils dec "$ENCRYPTED"                    # reads VUTILS_PASSWORD
 ```
 
-Setting `crypto.password-env` clears `crypto.password-file` and vice versa. A relative password-file path is resolved from the config directory. `dec` still detects the algorithm recorded in each envelope; `crypto.algorithm` selects the default for new `enc` output, while an explicit `--alg` overrides it.
+`crypto.password-env` is therefore an automation pointer, not the secret itself: the configuration saves only an environment-variable name, while that variable's value supplies the secret passphrase or arbitrary text used by `enc` and `dec`. Setting `crypto.password-env` clears `crypto.password-file` and vice versa. A relative password-file path is resolved from the config directory. `dec` still detects the algorithm recorded in each envelope; `crypto.algorithm` selects the default for new `enc` output, while an explicit `--alg` overrides it.
 
 The default config locations are `$XDG_CONFIG_HOME/vutils/config.toml` (or `~/.config/vutils/config.toml`) on Linux and `~/Library/Application Support/vutils/config.toml` on macOS. Set `VUTILS_CONFIG` to use a different file, which is also useful for isolated project profiles.
 
