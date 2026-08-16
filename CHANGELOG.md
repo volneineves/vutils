@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-08-16
+
+### Added
+
+- Dedicated Validators tab in the TUI for JSON, JSON Schema, YAML, CSV, TOML, XML, and dotenv validation, separated from parser workflows and available through shortcut `4`.
+
+### Changed
+
+- Replaced Configuration with SQL formatting in the default TUI Home shortcuts.
+
 ## [0.5.1] - 2026-08-16
 
 ### Changed

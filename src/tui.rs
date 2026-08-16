@@ -1352,7 +1352,7 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             Line::from(vec![
                 Span::styled(" Ctrl-R ", key_style()),
                 Span::raw("run  "),
-                Span::styled(" [ ] / 0-7 ", key_style()),
+                Span::styled(" [ ] / 0-8 ", key_style()),
                 Span::raw("tabs  "),
                 Span::styled(" ? ", key_style()),
                 Span::raw("help  "),
@@ -1375,7 +1375,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
     frame.render_widget(Clear, popup);
     let help = [
         "Navigation",
-        "  0 Home · 1-7 categories · [ ] previous/next tab",
+        "  0 Home · 1-8 categories · [ ] previous/next tab",
         "  ↑↓/jk operation or field · ←→/hl tab or value",
         "  Enter open/edit · Space toggle Yes/No",
         "  Tab / Shift-Tab moves focus between panels",
@@ -1497,6 +1497,19 @@ mod tests {
     }
 
     #[test]
+    fn default_home_uses_sql_format_instead_of_configuration() {
+        let app = app();
+        let tool_ids = app
+            .home_tools
+            .iter()
+            .map(|index| tool_id(&TOOLS[*index]))
+            .collect::<Vec<_>>();
+
+        assert!(tool_ids.contains(&"sql.format".to_owned()));
+        assert!(!tool_ids.contains(&"config.list".to_owned()));
+    }
+
+    #[test]
     fn random_tab_shows_the_uuid_determinism_easter_egg() {
         let backend = TestBackend::new(100, MIN_HEIGHT);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1537,15 +1550,20 @@ mod tests {
     }
 
     #[test]
-    fn numeric_shortcuts_open_vruno_and_configuration() {
+    fn numeric_shortcuts_open_validators_vruno_and_configuration() {
         let mut app = app();
 
-        handle_key(&mut app, KeyEvent::from(KeyCode::Char('6')));
+        handle_key(&mut app, KeyEvent::from(KeyCode::Char('4')));
+
+        assert_eq!(app.category(), Category::Validators);
+        assert_eq!(app.tool().name, "Validate JSON");
+
+        handle_key(&mut app, KeyEvent::from(KeyCode::Char('7')));
 
         assert_eq!(app.category(), Category::Vruno);
         assert_eq!(app.tool().name, "Configure");
 
-        handle_key(&mut app, KeyEvent::from(KeyCode::Char('7')));
+        handle_key(&mut app, KeyEvent::from(KeyCode::Char('8')));
 
         assert_eq!(app.category(), Category::Configuration);
         assert_eq!(app.tool().name, "Configuration");
@@ -1566,7 +1584,7 @@ mod tests {
         config.set("vruno.collection", "collections/api").unwrap();
         config.set("vruno.openapi", "specs/openapi.yaml").unwrap();
         let mut app = App::from_config(Some(config), None);
-        app.select_category(7);
+        app.select_category(8);
         app.move_tool(1);
 
         for (name, expected) in [
@@ -1594,7 +1612,7 @@ mod tests {
         config.set("vruno.openapi", "specs/openapi.yaml").unwrap();
         let mut app = App::from_config(Some(config), None);
 
-        app.select_category(6);
+        app.select_category(7);
 
         let values = app
             .form
@@ -1628,7 +1646,7 @@ mod tests {
             .unwrap();
         config.set("crypto.algorithm", "aes-256-gcm").unwrap();
         let mut app = App::from_config(Some(config), None);
-        app.select_category(5);
+        app.select_category(6);
 
         let values = app
             .form
@@ -1655,7 +1673,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let config = UserConfig::load_from(directory.path().join("config.toml")).unwrap();
         let mut app = App::from_config(Some(config), None);
-        app.select_category(5);
+        app.select_category(6);
 
         assert_eq!(app.form[1].value(&app.tool().fields[1]), "direct");
         assert_eq!(app.form[2].display(&app.tool().fields[2]), "(not set)");
@@ -1694,10 +1712,11 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
 
-        assert!(rendered.contains("2 Format"));
+        assert!(rendered.contains("2 Fmt"));
         assert!(rendered.contains("3 Parse"));
-        assert!(rendered.contains("6 Vruno"));
-        assert!(rendered.contains("7 Config"));
+        assert!(rendered.contains("4 Val"));
+        assert!(rendered.contains("7 Vruno"));
+        assert!(rendered.contains("8 Cfg"));
         assert!(rendered.contains("Home shortcuts"));
         assert!(rendered.contains("Format JSON"));
         assert!(rendered.contains("Input"));
@@ -1716,6 +1735,7 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
+        assert!(help.contains("1-8 categories"));
         assert!(help.contains("? / Esc closes help."));
     }
 
@@ -1795,8 +1815,9 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(rendered.contains("6 Vruno"));
-        assert!(rendered.contains("7 Configuration"));
+        assert!(rendered.contains("4 Validators"));
+        assert!(rendered.contains("7 Vruno"));
+        assert!(rendered.contains("8 Configuration"));
     }
 
     #[test]
@@ -1804,7 +1825,7 @@ mod tests {
         let backend = TestBackend::new(MIN_WIDTH, MIN_HEIGHT);
         let mut terminal = Terminal::new(backend).unwrap();
         let mut app = app();
-        app.select_category(7);
+        app.select_category(8);
         press(&mut app, KeyCode::End);
 
         terminal.draw(|frame| render(frame, &app)).unwrap();
@@ -1827,7 +1848,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let config = UserConfig::load_from(directory.path().join("config.toml")).unwrap();
         let mut app = App::from_config(Some(config), None);
-        app.select_category(5);
+        app.select_category(6);
         app.focus = Focus::Parameters;
         app.field_selection = 2;
         app.editing_field = true;

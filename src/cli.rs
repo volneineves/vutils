@@ -37,7 +37,7 @@ CONFIG KEYS:
 
   tui.home
     Value: comma-separated TUI operation ids
-    Default: json.pretty, uuid, gen.password, enc, dec, config.list
+    Default: json.pretty, uuid, gen.password, enc, dec, sql.format
     Example: json.pretty, uuid, sql.format, code.types
 
   vruno.collection

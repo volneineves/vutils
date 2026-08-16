@@ -20,7 +20,7 @@ pub const DEFAULT_TUI_HOME: &[&str] = &[
     "gen.password",
     "enc",
     "dec",
-    "config.list",
+    "sql.format",
 ];
 
 const MAX_TUI_HOME_ITEMS: usize = 20;

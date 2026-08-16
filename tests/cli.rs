@@ -202,7 +202,7 @@ fn config_help_documents_every_supported_default() {
         "v1, v2, v3, v4, v5, v6, v7, v8",
         "hyphenated, simple, urn, braced",
         "xchacha20-poly1305, aes-256-gcm",
-        "json.pretty, uuid, gen.password, enc, dec, config.list",
+        "json.pretty, uuid, gen.password, enc, dec, sql.format",
     ] {
         assert!(help.contains(value), "config help is missing value {value}");
     }
@@ -603,7 +603,7 @@ fn config_defaults_apply_and_explicit_flags_override_them() {
     let listed = String::from_utf8(listed.stdout).unwrap();
     assert!(listed.contains("sql.dialect=mysql"));
     assert!(listed.contains("crypto.password-env=TEST_VUTILS_PASSWORD"));
-    assert!(listed.contains("tui.home=json.pretty,uuid,gen.password,enc,dec,config.list"));
+    assert!(listed.contains("tui.home=json.pretty,uuid,gen.password,enc,dec,sql.format"));
     assert!(!listed.contains("test-password"));
 
     let sql = vutils_with_config(&path)

@@ -1,6 +1,6 @@
 use super::editor::Editor;
 
-pub(super) const CATEGORY_COUNT: usize = 8;
+pub(super) const CATEGORY_COUNT: usize = 9;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Category {
@@ -8,6 +8,7 @@ pub(super) enum Category {
     Random,
     Formatters,
     Parsers,
+    Validators,
     Codecs,
     Security,
     Vruno,
@@ -20,6 +21,7 @@ impl Category {
         Self::Random,
         Self::Formatters,
         Self::Parsers,
+        Self::Validators,
         Self::Codecs,
         Self::Security,
         Self::Vruno,
@@ -32,6 +34,7 @@ impl Category {
             Self::Random => "Random",
             Self::Formatters => "Formatters",
             Self::Parsers => "Parsers",
+            Self::Validators => "Validators",
             Self::Codecs => "Codecs",
             Self::Security => "Security",
             Self::Vruno => "Vruno",
@@ -50,6 +53,8 @@ impl Category {
             Self::Formatters if narrow => "Fmt",
             Self::Formatters => "Format",
             Self::Parsers => "Parse",
+            Self::Validators if narrow => "Val",
+            Self::Validators => "Validate",
             Self::Codecs => "Codec",
             Self::Security => "Sec",
             Self::Vruno => "Vruno",
@@ -1508,7 +1513,7 @@ const CONFIG_HOME_FIELDS: &[FieldDef] = &[config_text_field(
     "value",
     "Operation IDs",
     "Comma-separated Home operation IDs, in display order",
-    "json.pretty,uuid,gen.password,enc,dec,config.list",
+    "json.pretty,uuid,gen.password,enc,dec,sql.format",
 )];
 const CONFIG_VRUNO_COLLECTION_FIELDS: &[FieldDef] = &[config_text_field(
     "value",
@@ -2113,8 +2118,8 @@ pub(super) const TOOLS: &[ToolDef] = &[
         sample: Some("{\n  \"name\": \"Volnei\"\n}"),
     },
     ToolDef {
-        category: Category::Parsers,
-        name: "Validate",
+        category: Category::Validators,
+        name: "Validate JSON",
         description: "Validate JSON syntax",
         base: &["json", "validate"],
         fields: NO_FIELDS,
@@ -2779,7 +2784,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
         sample: Some("first line\nsecond line"),
     },
     ToolDef {
-        category: Category::Parsers,
+        category: Category::Validators,
         name: "Validate JSON Schema",
         description: "Validate JSON against a local schema",
         base: &["json", "schema-validate"],
@@ -2788,7 +2793,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
         sample: Some(r#"{"name":"Volnei"}"#),
     },
     ToolDef {
-        category: Category::Parsers,
+        category: Category::Validators,
         name: "Validate YAML",
         description: "Validate YAML syntax",
         base: &["yaml", "validate"],
@@ -2815,7 +2820,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
         sample: None,
     },
     ToolDef {
-        category: Category::Parsers,
+        category: Category::Validators,
         name: "Validate CSV",
         description: "Validate CSV structure",
         base: &["csv", "validate"],
@@ -2824,7 +2829,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
         sample: Some("name,active\nVolnei,true"),
     },
     ToolDef {
-        category: Category::Parsers,
+        category: Category::Validators,
         name: "Validate TOML",
         description: "Validate TOML syntax",
         base: &["toml", "validate"],
@@ -2833,7 +2838,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
         sample: Some("name = \"Volnei\""),
     },
     ToolDef {
-        category: Category::Parsers,
+        category: Category::Validators,
         name: "Validate XML",
         description: "Validate XML well-formedness",
         base: &["xml", "validate"],
@@ -2842,7 +2847,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
         sample: Some("<name>Volnei</name>"),
     },
     ToolDef {
-        category: Category::Parsers,
+        category: Category::Validators,
         name: "Validate dotenv",
         description: "Validate dotenv syntax",
         base: &["dotenv", "validate"],
@@ -3534,7 +3539,6 @@ mod tests {
             assert_eq!(tool(name).category, Category::Formatters, "{name}");
         }
         for name in [
-            "Validate",
             "Read path",
             "YAML to JSON",
             "Parse dotenv",
@@ -3542,6 +3546,17 @@ mod tests {
             "Cron explain",
         ] {
             assert_eq!(tool(name).category, Category::Parsers, "{name}");
+        }
+        for name in [
+            "Validate JSON",
+            "Validate JSON Schema",
+            "Validate YAML",
+            "Validate CSV",
+            "Validate TOML",
+            "Validate XML",
+            "Validate dotenv",
+        ] {
+            assert_eq!(tool(name).category, Category::Validators, "{name}");
         }
         assert_eq!(tool("Convert number").category, Category::Codecs);
         assert_eq!(tool("UUID").category, Category::Random);
@@ -3557,6 +3572,23 @@ mod tests {
         assert_eq!(
             first_formatters,
             ["Format JSON", "Format SQL", "Format cURL"]
+        );
+
+        let validators = tools_in(Category::Validators)
+            .into_iter()
+            .map(|index| tool_id(&TOOLS[index]))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            validators,
+            [
+                "json.validate",
+                "json.schema-validate",
+                "yaml.validate",
+                "csv.validate",
+                "toml.validate",
+                "xml.validate",
+                "dotenv.validate",
+            ]
         );
     }
 
