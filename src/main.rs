@@ -1,4 +1,6 @@
 mod cli;
+mod tui;
+mod vruno;
 
 use std::{env, fs, io::Write as _, path::PathBuf, process::ExitCode};
 
@@ -25,6 +27,35 @@ fn main() -> ExitCode {
     if cli.author {
         println!("{}", env!("CARGO_PKG_AUTHORS"));
         return ExitCode::SUCCESS;
+    }
+
+    if matches!(cli.command.as_ref(), Some(Command::Tui)) {
+        if cli.output.is_some() || cli.in_place || cli.force || cli.copy {
+            return fail(&VutilsError::InvalidInput(
+                "output flags cannot be used with the interactive TUI".into(),
+            ));
+        }
+        return match tui::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => fail(&error),
+        };
+    }
+
+    if matches!(cli.command.as_ref(), Some(Command::Vruno(_))) && cli.in_place {
+        return fail(&VutilsError::InvalidInput(
+            "--in-place cannot be used with Vruno commands".into(),
+        ));
+    }
+    let vruno_writes = matches!(
+        cli.command.as_ref(),
+        Some(Command::Vruno(
+            VrunoCommand::Configure(_) | VrunoCommand::Sync(_)
+        ))
+    );
+    if vruno_writes && (cli.output.is_some() || cli.force || cli.copy) {
+        return fail(&VutilsError::InvalidInput(
+            "output flags cannot be used with Vruno configure or sync".into(),
+        ));
     }
 
     let output = OutputArgs {
@@ -59,6 +90,9 @@ fn main() -> ExitCode {
 #[allow(clippy::too_many_lines)]
 fn dispatch(command: Command, config: &UserConfig) -> Result<Outcome> {
     match command {
+        Command::Tui => Err(VutilsError::Message(
+            "internal error: TUI command reached regular dispatcher".into(),
+        )),
         Command::Uuid(args) => {
             let version = resolve_uuid_version(args.version, config)?;
             let format = resolve_uuid_format(args.format, config)?;
@@ -112,6 +146,7 @@ fn dispatch(command: Command, config: &UserConfig) -> Result<Outcome> {
         Command::Config(_) => Err(VutilsError::Message(
             "internal error: config command reached regular dispatcher".into(),
         )),
+        Command::Vruno(command) => dispatch_vruno(command, config),
         Command::Base64(command) => match command {
             Base64Command::Encode {
                 input,
@@ -413,6 +448,101 @@ fn dispatch_config(command: ConfigCommand) -> Result<Outcome> {
             text_out(effective, InputOptions::default())
         }
     }
+}
+
+fn dispatch_vruno(command: VrunoCommand, config: &UserConfig) -> Result<Outcome> {
+    match command {
+        VrunoCommand::Configure(args) => {
+            let collection = vruno::validate_collection(&args.collection)?;
+            let openapi = vruno::validate_openapi(&args.openapi)?;
+            let mut updated = config.clone();
+            updated.set("vruno.collection", &collection.display().to_string())?;
+            updated.set("vruno.openapi", &openapi.display().to_string())?;
+            updated.save()?;
+            text_out(
+                format!(
+                    "collection={}\nopenapi={}",
+                    collection.display(),
+                    openapi.display()
+                ),
+                InputOptions::default(),
+            )
+        }
+        VrunoCommand::Show => text_out(vruno_setup(config), InputOptions::default()),
+        VrunoCommand::Check(args) => {
+            run_vruno(args.run, config, vruno::SyncMode::Check, args.output_format)
+        }
+        VrunoCommand::Preview(args) => run_vruno(
+            args,
+            config,
+            vruno::SyncMode::Preview,
+            VrunoOutputFormatArg::Text,
+        ),
+        VrunoCommand::Sync(args) => {
+            if !args.yes {
+                return Err(VutilsError::InvalidInput(
+                    "Vruno sync writes collection files; run preview first, then pass --yes to confirm"
+                        .into(),
+                ));
+            }
+            run_vruno(
+                args.run,
+                config,
+                vruno::SyncMode::Sync,
+                VrunoOutputFormatArg::Text,
+            )
+        }
+    }
+}
+
+fn vruno_setup(config: &UserConfig) -> String {
+    format!(
+        "engine=native\ncollection={}\nopenapi={}",
+        config
+            .vruno_collection()
+            .map_or_else(|| "<unset>".into(), |path| path.display().to_string()),
+        config
+            .vruno_openapi()
+            .map_or_else(|| "<unset>".into(), |path| path.display().to_string())
+    )
+}
+
+fn run_vruno(
+    args: VrunoRunArgs,
+    config: &UserConfig,
+    mode: vruno::SyncMode,
+    output_format: VrunoOutputFormatArg,
+) -> Result<Outcome> {
+    let collection = args
+        .collection
+        .or_else(|| config.vruno_collection())
+        .ok_or_else(|| {
+            VutilsError::InvalidInput(
+                "Vruno collection is not configured; run `vutils vruno configure` first or pass --collection".into(),
+            )
+        })?;
+    let openapi = args.openapi.or_else(|| config.vruno_openapi()).ok_or_else(|| {
+        VutilsError::InvalidInput(
+            "Vruno OpenAPI file is not configured; run `vutils vruno configure` first or pass --openapi".into(),
+        )
+    })?;
+    let request = vruno::SyncRequest {
+        collection,
+        openapi,
+        mode,
+        json: matches!(output_format, VrunoOutputFormatArg::Json),
+        group_by: match args.group_by {
+            VrunoGroupByArg::Tags => vruno::GroupBy::Tags,
+            VrunoGroupByArg::Path => vruno::GroupBy::Path,
+        },
+    };
+    let output = vruno::run(&request)?;
+    Ok(Outcome {
+        bytes: output.stdout,
+        textual: true,
+        input: InputArgs::default(),
+        success: output.success,
+    })
 }
 
 fn dispatch_generator(command: GenCommand) -> Result<Outcome> {

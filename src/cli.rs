@@ -34,18 +34,33 @@ CONFIG KEYS:
     Value: path to a file containing the password
     Default: not set; relative paths use the config file directory
 
+  tui.home
+    Value: comma-separated TUI operation ids
+    Default: json.pretty, uuid, gen.password, enc, dec, config.list
+    Example: json.pretty, uuid, sql.format, code.types
+
+  vruno.collection
+    Value: path to the Bruno collection directory
+    Default: not set
+
+  vruno.openapi
+    Value: path to a local OpenAPI 3.x .json, .yaml, or .yml file
+    Default: not set
+
 Passwords are never stored directly in config.toml. password-env and password-file
 are mutually exclusive; setting either one clears the other. Decryption detects the
 algorithm stored in the encrypted envelope.
 
 KEY ALIASES:
   sql-dialect, uuid-version, uuid-format, crypto-algorithm
-  enc.algorithm, enc.password-env, enc.password-file
+  enc.algorithm, enc.password-env, enc.password-file, tui-home
+  vruno-collection, vruno-openapi
 
 CONFIG LOCATION:
   Linux: $XDG_CONFIG_HOME/vutils/config.toml or ~/.config/vutils/config.toml
   macOS: ~/Library/Application Support/vutils/config.toml
   Override: set VUTILS_CONFIG to an explicit file path
+  Relative Vruno paths use the config file directory
 
 EXAMPLES:
   vutils config path
@@ -53,6 +68,8 @@ EXAMPLES:
   vutils config get sql.dialect
   vutils config set sql.dialect postgres
   vutils config set uuid.version v4
+  vutils config set tui.home json.pretty,uuid,sql.format
+  vutils vruno configure --collection ./api --openapi ./openapi.yaml
   vutils config set crypto.password-env VUTILS_PASSWORD
   vutils config unset uuid.version"#;
 
@@ -80,6 +97,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    #[command(about = "Open the interactive terminal interface")]
+    Tui,
     #[command(about = "Generate UUIDs v1 through v8")]
     Uuid(UuidArgs),
     #[command(subcommand, about = "Generate other identifiers")]
@@ -94,6 +113,8 @@ pub enum Command {
         long_about = CONFIG_LONG_HELP
     )]
     Config(ConfigCommand),
+    #[command(subcommand, about = "Configure and run Bruno OpenAPI collection sync")]
+    Vruno(VrunoCommand),
     #[command(subcommand, about = "Encode and decode Base64 data")]
     Base64(Base64Command),
     #[command(
@@ -359,6 +380,78 @@ pub enum ConfigCommand {
     Set { key: String, value: String },
     #[command(about = "Remove a persisted value and restore its built-in default")]
     Unset { key: String },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum VrunoCommand {
+    #[command(about = "Persist and validate the Bruno collection and OpenAPI paths")]
+    Configure(VrunoConfigureArgs),
+    #[command(about = "Show the effective Vruno setup")]
+    Show,
+    #[command(about = "Report drift without changing the Bruno collection")]
+    Check(VrunoCheckArgs),
+    #[command(about = "Preview collection changes without writing files")]
+    Preview(VrunoRunArgs),
+    #[command(about = "Create and update collection requests from OpenAPI")]
+    Sync(VrunoSyncArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct VrunoConfigureArgs {
+    #[arg(long, value_name = "DIRECTORY", help = "Bruno collection directory")]
+    pub collection: PathBuf,
+    #[arg(
+        long,
+        value_name = "OPENAPI_FILE",
+        help = "Local OpenAPI 3.x JSON or YAML file"
+    )]
+    pub openapi: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub struct VrunoRunArgs {
+    #[arg(
+        long,
+        value_name = "DIRECTORY",
+        help = "Override the configured collection"
+    )]
+    pub collection: Option<PathBuf>,
+    #[arg(
+        long,
+        value_name = "OPENAPI_FILE",
+        help = "Override the configured OpenAPI file"
+    )]
+    pub openapi: Option<PathBuf>,
+    #[arg(long, value_enum, default_value = "tags")]
+    pub group_by: VrunoGroupByArg,
+}
+
+#[derive(Debug, Args)]
+pub struct VrunoCheckArgs {
+    #[command(flatten)]
+    pub run: VrunoRunArgs,
+    #[arg(long = "format", value_enum, default_value = "text")]
+    pub output_format: VrunoOutputFormatArg,
+}
+
+#[derive(Debug, Args)]
+pub struct VrunoSyncArgs {
+    #[command(flatten)]
+    pub run: VrunoRunArgs,
+    #[arg(long, help = "Confirm that collection files may be created or updated")]
+    pub yes: bool,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum VrunoOutputFormatArg {
+    Text,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum VrunoGroupByArg {
+    Tags,
+    Path,
 }
 
 #[derive(Debug, Subcommand)]

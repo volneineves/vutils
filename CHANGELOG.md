@@ -4,6 +4,42 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-15
+
+### Added
+
+- Full-screen `vutils tui` backend workbench with category tabs, contextual typed forms, editable stdin, asynchronous execution, exact command previews, and safe text/binary output previews.
+- Guided UUID v1-v8 selection and password controls for length, quantity, special characters, and ambiguous-character exclusion.
+- LazyVim adapter with a floating terminal, `:Vutils`, configurable keymap/window options, and an optional plugin-local release build.
+- Customizable TUI Home with persisted favorite operations, common backend defaults including `enc`/`dec`, configuration access, and safe add/remove/reset shortcuts.
+- Vim-style TUI navigation and visible Ex command mode supporting `:q`, `:qa`, and `:qall` variants.
+- Dedicated Configuration tab in the last top-level position, now available through shortcut `7` while retaining configuration access from Home.
+- Random category for local generators, with an inline reminder that UUID v3 and v5 are deterministic rather than random.
+- Native Vruno OpenAPI-to-Bruno synchronization, with persisted collection/OpenAPI paths, conservative local-data-preserving merges, safe drift checks, dry-run previews, and confirmed writes without a `bru` dependency.
+
+### Changed
+
+- Replaced the legacy JSON/Data/Text/Backend tab model with the fixed Home, Random, Formatters, Parsers, Codecs, Security, Vruno, and Configuration workflow taxonomy.
+
+## [0.4.1] - 2026-08-09
+
+### Added
+
+- Author metadata output and expanded configuration help.
+
+### Changed
+
+- Existing regular files can be supplied directly as positional input, while `--literal` keeps ambiguous values as text.
+- Installation examples use temporary downloads and simpler cleanup.
+- Validation remains warning-free on macOS.
+
+## [0.4.0] - 2026-08-09
+
+### Added
+
+- Persistent validated defaults for frequently repeated command options.
+- Binary bit-string encoding and decoding utilities.
+
 ## [0.3.0] - 2026-08-09
 
 ### Added

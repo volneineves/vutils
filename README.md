@@ -76,6 +76,63 @@ Rust 1.88 or newer is required only when building from source. Installed binarie
 
 Use `vutils --version`, `vutils --author`, or `vutils --help` to inspect the installed CLI metadata.
 
+## Interactive terminal interface
+
+Run the full-screen interface in any interactive terminal:
+
+```bash
+vutils tui
+```
+
+The TUI opens on a customizable **Home** with the most common backend actions: JSON formatting, UUID and password generation, encryption/decryption, and the effective vutils configuration. Its fixed workflow tabs are **Random**, **Formatters**, **Parsers**, **Codecs**, **Security**, **Vruno**, and **Configuration**. Formatters groups output normalization such as JSON, SQL, cURL, YAML, XML, text, and byte sizes; Parsers groups validation, extraction, conversion, regex inspection, model inference, cron, and time utilities. Each operation exposes only its relevant parameters, a multiline input editor when needed, the exact generated CLI command, and a scrollable output preview. The Random tab keeps one caveat visible in the UUID version help: v3 and v5 are deterministic for the same namespace and name.
+
+Use `0` to return Home; `1` opens Random, `2` Formatters, `3` Parsers, `4` Codecs, `5` Security, `6` Vruno, and `7` Configuration. `[`/`]` or `h`/`l` from the operations panel also change tabs. Navigate operations and fields with `j`/`k` or the arrow keys; `h`/`l` changes choices and numeric values in the parameter panel. Choice fields—such as UUID v1 through v8—change with left/right; `Space` toggles options such as password special characters; `Enter` edits text and numeric values such as password length. Run with `Ctrl-R` or `F5`; close with `q`, `:q`, `:qa`, or `:qall`; and press `?` for the complete shortcut reference. Vim keys remain ordinary text while editing Input or a field.
+
+To customize Home, select any operation in its category and press `f` to add or remove it. From Home, `Delete` removes the selected shortcut and `R` restores the built-in set. Changes are saved atomically under `tui.home` in the existing `config.toml`; Home only references known vutils operations and never executes arbitrary shell commands.
+
+Commands run through the current `vutils` executable without a shell. The editor content is sent through stdin, so the same parser, validation, persistent-configuration layer, and exit behavior used by the regular CLI remain active; values visible in the form are explicit and therefore take precedence over configured defaults. Binary output is shown as a safe hexadecimal preview instead of being written directly to the terminal.
+
+### LazyVim
+
+Copy the following spec to `~/.config/nvim/lua/plugins/vutils.lua`:
+
+```lua
+return {
+  {
+    "volneineves/vutils",
+    build = "cargo build --release --locked",
+    cmd = { "Vutils" },
+    keys = {
+      {
+        "<leader>uv",
+        function()
+          require("vutils").open()
+        end,
+        desc = "Open vutils TUI",
+      },
+    },
+    opts = { keymap = false },
+  },
+}
+```
+
+The build step lets the plugin work without a separate system installation and its matching binary takes precedence over `PATH`. Remove `build` to use an installed `vutils`, or set `command` explicitly. Use `:Vutils` or `<leader>uv` to open the floating terminal. Press `q` inside the TUI to exit normally, or press `Esc` twice to close the window immediately.
+
+The window and executable can be customized through `opts`:
+
+```lua
+opts = {
+  command = "/custom/path/to/vutils",
+  width = 0.9,
+  height = 0.85,
+  border = "rounded",
+  winblend = 0,
+  keymap = false,
+}
+```
+
+A ready-to-copy version of the spec is available at [`extras/lazyvim/vutils.lua`](extras/lazyvim/vutils.lua).
+
 ## Input and output
 
 Transformations accept a positional value or existing file path, an explicit `--input <path>`, or stdin. Existing regular files are detected automatically; use `--literal` when text that happens to match a file name must not be read from disk. Output is written to stdout by default.
@@ -102,6 +159,7 @@ vutils config set sql.dialect postgres
 vutils config set uuid.version v4
 vutils config set uuid.format simple
 vutils config set crypto.algorithm aes-256-gcm
+vutils config set tui.home json.pretty,uuid,sql.format,code.types
 vutils config get sql.dialect
 vutils config unset uuid.format
 ```
@@ -114,6 +172,35 @@ vutils config unset uuid.format
 | `crypto.algorithm` | `xchacha20-poly1305`, `aes-256-gcm` | `xchacha20-poly1305` for `enc` |
 | `crypto.password-env` | Environment variable name | not set |
 | `crypto.password-file` | Local file path | not set |
+| `tui.home` | Comma-separated operation IDs | `json.pretty,uuid,gen.password,enc,dec,config.list` |
+| `vruno.collection` | Bruno collection directory | not set |
+| `vruno.openapi` | Local OpenAPI 3.x JSON or YAML file | not set |
+
+Relative Vruno paths are resolved from the directory containing `config.toml`. `vutils vruno configure` validates and stores absolute paths atomically.
+
+### Vruno: Bruno OpenAPI sync
+
+Vruno implements OpenAPI drift detection and Bruno collection synchronization directly in vutils. It follows the conservative merge model proposed in [Bruno PR #7706](https://github.com/usebruno/bruno/pull/7706), but does not require `bru` or Node.js. Existing request values, authentication, tests, scripts, assertions, variables, and documentation are preserved; OpenAPI controls the URL and the structure of parameters, headers, and request bodies.
+
+Configure one local OpenAPI 3.x `.json`, `.yaml`, or `.yml` file and its target collection:
+
+```bash
+vutils vruno configure \
+  --collection /path/to/bruno-collection \
+  --openapi /path/to/openapi.yaml
+vutils vruno show
+```
+
+Use the read-only checks before applying changes:
+
+```bash
+vutils vruno check                  # reports drift; drift returns a non-zero status
+vutils vruno preview                # native dry-run; writes nothing
+vutils vruno sync --yes             # creates and updates collection requests
+vutils vruno check --format json --group-by path
+```
+
+`sync` requires `--yes`. Stale requests are reported but never deleted, so removing local collection data always remains an explicit manual decision. The native engine currently supports classic Bruno collections (`bruno.json` with `.bru` request files) and bundled OpenAPI documents with internal `$ref` pointers. It refuses `opencollection.yml` and external `$ref` files instead of risking a lossy partial conversion. The same Configure, Show setup, Check drift, Preview sync, and Sync collection operations are available under TUI tab `6`.
 
 Passwords are never stored directly in `config.toml`. Configure a source instead:
 
@@ -274,7 +361,9 @@ Without `--output`, decoded binary bytes are written directly to stdout and can 
 | `semver compare` / `semver sort` / `semver bump` | Compare, sort, or increment semantic versions. |
 | `ip cidr` | Inspect an IP/CIDR network, prefix, mask, and address range. |
 | `mime` | Look up a MIME type from a file extension using the built-in table. |
-| `config path/list/get/set/unset` | Inspect or manage validated per-user defaults for UUID, SQL, and encryption. |
+| `tui` | Open the category-based full-screen workbench for interactive transformations and generators. |
+| `vruno configure/show/check/preview/sync` | Configure and run Bruno OpenAPI collection drift checks and synchronization. |
+| `config path/list/get/set/unset` | Inspect or manage validated per-user defaults for UUID, SQL, encryption, the TUI Home, and Vruno. |
 | `completion` | Generate Bash, Zsh, Fish, PowerShell, or Elvish completion scripts. |
 | `man` | Generate the `vutils(1)` manual page. |
 

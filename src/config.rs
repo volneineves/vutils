@@ -14,6 +14,16 @@ pub const DEFAULT_SQL_DIALECT: &str = "generic";
 pub const DEFAULT_UUID_VERSION: &str = "v7";
 pub const DEFAULT_UUID_FORMAT: &str = "hyphenated";
 pub const DEFAULT_CRYPTO_ALGORITHM: &str = "xchacha20-poly1305";
+pub const DEFAULT_TUI_HOME: &[&str] = &[
+    "json.pretty",
+    "uuid",
+    "gen.password",
+    "enc",
+    "dec",
+    "config.list",
+];
+
+const MAX_TUI_HOME_ITEMS: usize = 20;
 
 const CONFIG_VERSION: u8 = 1;
 
@@ -27,6 +37,10 @@ struct ConfigData {
     uuid: UuidDefaults,
     #[serde(skip_serializing_if = "CryptoDefaults::is_empty")]
     crypto: CryptoDefaults,
+    #[serde(skip_serializing_if = "TuiDefaults::is_empty")]
+    tui: TuiDefaults,
+    #[serde(skip_serializing_if = "VrunoDefaults::is_empty")]
+    vruno: VrunoDefaults,
 }
 
 impl Default for ConfigData {
@@ -36,6 +50,8 @@ impl Default for ConfigData {
             sql: SqlDefaults::default(),
             uuid: UuidDefaults::default(),
             crypto: CryptoDefaults::default(),
+            tui: TuiDefaults::default(),
+            vruno: VrunoDefaults::default(),
         }
     }
 }
@@ -82,6 +98,36 @@ struct CryptoDefaults {
 impl CryptoDefaults {
     fn is_empty(&self) -> bool {
         self.algorithm.is_none() && self.password_env.is_none() && self.password_file.is_none()
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct TuiDefaults {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    home: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct VrunoDefaults {
+    #[serde(rename = "bruno", skip_serializing)]
+    legacy_bruno: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    collection: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    openapi: Option<String>,
+}
+
+impl VrunoDefaults {
+    fn is_empty(&self) -> bool {
+        self.collection.is_none() && self.openapi.is_none()
+    }
+}
+
+impl TuiDefaults {
+    fn is_empty(&self) -> bool {
+        self.home.is_none()
     }
 }
 
@@ -170,6 +216,44 @@ impl UserConfig {
         })
     }
 
+    pub fn tui_home(&self) -> Vec<String> {
+        self.data.tui.home.clone().unwrap_or_else(|| {
+            DEFAULT_TUI_HOME
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect()
+        })
+    }
+
+    pub fn vruno_collection(&self) -> Option<PathBuf> {
+        self.data
+            .vruno
+            .collection
+            .as_deref()
+            .map(Path::new)
+            .map(|path| self.resolve_relative_path(path))
+    }
+
+    pub fn vruno_openapi(&self) -> Option<PathBuf> {
+        self.data
+            .vruno
+            .openapi
+            .as_deref()
+            .map(Path::new)
+            .map(|path| self.resolve_relative_path(path))
+    }
+
+    fn resolve_relative_path(&self, path: &Path) -> PathBuf {
+        if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            self.path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(path)
+        }
+    }
+
     pub fn get(&self, key: &str) -> Result<String> {
         match canonical_key(key)? {
             "sql.dialect" => Ok(self.sql_dialect().to_owned()),
@@ -181,6 +265,13 @@ impl UserConfig {
             }),
             "crypto.password-file" => self.data.crypto.password_file.clone().ok_or_else(|| {
                 VutilsError::InvalidInput("config key `crypto.password-file` is not set".into())
+            }),
+            "tui.home" => Ok(self.tui_home().join(",")),
+            "vruno.collection" => self.data.vruno.collection.clone().ok_or_else(|| {
+                VutilsError::InvalidInput("config key `vruno.collection` is not set".into())
+            }),
+            "vruno.openapi" => self.data.vruno.openapi.clone().ok_or_else(|| {
+                VutilsError::InvalidInput("config key `vruno.openapi` is not set".into())
             }),
             _ => unreachable!("canonical_key returned an unsupported key"),
         }
@@ -198,6 +289,13 @@ impl UserConfig {
         }
         if let Some(value) = &self.data.crypto.password_file {
             entries.push(("crypto.password-file", value.clone()));
+        }
+        entries.push(("tui.home", self.tui_home().join(",")));
+        if let Some(value) = &self.data.vruno.collection {
+            entries.push(("vruno.collection", value.clone()));
+        }
+        if let Some(value) = &self.data.vruno.openapi {
+            entries.push(("vruno.openapi", value.clone()));
         }
         entries
     }
@@ -226,6 +324,9 @@ impl UserConfig {
                 self.data.crypto.password_file = Some(value.to_owned());
                 self.data.crypto.password_env = None;
             }
+            "tui.home" => self.data.tui.home = Some(parse_tui_home(value)?),
+            "vruno.collection" => self.data.vruno.collection = Some(value.to_owned()),
+            "vruno.openapi" => self.data.vruno.openapi = Some(value.to_owned()),
             _ => unreachable!("canonical_key returned an unsupported key"),
         }
         Ok(())
@@ -239,6 +340,9 @@ impl UserConfig {
             "crypto.algorithm" => self.data.crypto.algorithm = None,
             "crypto.password-env" => self.data.crypto.password_env = None,
             "crypto.password-file" => self.data.crypto.password_file = None,
+            "tui.home" => self.data.tui.home = None,
+            "vruno.collection" => self.data.vruno.collection = None,
+            "vruno.openapi" => self.data.vruno.openapi = None,
             _ => unreachable!("canonical_key returned an unsupported key"),
         }
         Ok(())
@@ -338,6 +442,25 @@ fn normalize_and_validate(data: &mut ConfigData) -> Result<()> {
                 .into(),
         ));
     }
+    if let Some(home) = &mut data.tui.home {
+        *home = normalize_tui_home(home.iter().map(String::as_str))?;
+    }
+    normalize_optional_text("vruno.collection", &mut data.vruno.collection)?;
+    normalize_optional_text("vruno.openapi", &mut data.vruno.openapi)?;
+    data.vruno.legacy_bruno = None;
+    Ok(())
+}
+
+fn normalize_optional_text(key: &str, value: &mut Option<String>) -> Result<()> {
+    let Some(current) = value else {
+        return Ok(());
+    };
+    *current = current.trim().to_owned();
+    if current.is_empty() {
+        return Err(VutilsError::InvalidInput(format!(
+            "config value for `{key}` cannot be empty"
+        )));
+    }
     Ok(())
 }
 
@@ -349,10 +472,49 @@ fn canonical_key(key: &str) -> Result<&'static str> {
         "crypto.algorithm" | "enc.algorithm" | "crypto-algorithm" => Ok("crypto.algorithm"),
         "crypto.password-env" | "enc.password-env" => Ok("crypto.password-env"),
         "crypto.password-file" | "enc.password-file" => Ok("crypto.password-file"),
+        "tui.home" | "tui-home" => Ok("tui.home"),
+        "vruno.collection" | "vruno-collection" => Ok("vruno.collection"),
+        "vruno.openapi" | "vruno-openapi" => Ok("vruno.openapi"),
         _ => Err(VutilsError::InvalidInput(format!(
-            "unknown config key `{key}`; supported keys: sql.dialect, uuid.version, uuid.format, crypto.algorithm, crypto.password-env, crypto.password-file"
+            "unknown config key `{key}`; supported keys: sql.dialect, uuid.version, uuid.format, crypto.algorithm, crypto.password-env, crypto.password-file, tui.home, vruno.collection, vruno.openapi"
         ))),
     }
+}
+
+fn parse_tui_home(value: &str) -> Result<Vec<String>> {
+    normalize_tui_home(value.split(','))
+}
+
+fn normalize_tui_home<'a>(values: impl IntoIterator<Item = &'a str>) -> Result<Vec<String>> {
+    let mut normalized = Vec::new();
+    for value in values {
+        let value = value.trim().to_ascii_lowercase();
+        if value.is_empty()
+            || !value.chars().all(|character| {
+                character.is_ascii_lowercase()
+                    || character.is_ascii_digit()
+                    || matches!(character, '.' | '-')
+            })
+        {
+            return Err(VutilsError::InvalidInput(format!(
+                "invalid TUI Home shortcut `{value}`; use a command id such as json.pretty or uuid"
+            )));
+        }
+        if !normalized.contains(&value) {
+            normalized.push(value);
+        }
+    }
+    if normalized.is_empty() {
+        return Err(VutilsError::InvalidInput(
+            "config key `tui.home` requires at least one shortcut".into(),
+        ));
+    }
+    if normalized.len() > MAX_TUI_HOME_ITEMS {
+        return Err(VutilsError::InvalidInput(format!(
+            "config key `tui.home` supports at most {MAX_TUI_HOME_ITEMS} shortcuts"
+        )));
+    }
+    Ok(normalized)
 }
 
 fn parse_sql_dialect(value: &str) -> Result<&'static str> {
@@ -490,7 +652,78 @@ mod tests {
         assert_eq!(config.sql_dialect(), DEFAULT_SQL_DIALECT);
         assert_eq!(config.uuid_version(), DEFAULT_UUID_VERSION);
         assert_eq!(config.crypto_algorithm(), DEFAULT_CRYPTO_ALGORITHM);
+        assert_eq!(config.tui_home(), DEFAULT_TUI_HOME);
+        assert_eq!(config.vruno_collection(), None);
+        assert_eq!(config.vruno_openapi(), None);
         assert!(config.set("crypto.password", "secret").is_err());
+    }
+
+    #[test]
+    fn vruno_paths_round_trip_and_resolve_from_the_config_directory() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let mut config = UserConfig::load_from(path.clone()).unwrap();
+        config.set("vruno.collection", "collections/api").unwrap();
+        config.set("vruno.openapi", "specs/openapi.yaml").unwrap();
+        config.save().unwrap();
+
+        let mut loaded = UserConfig::load_from(path).unwrap();
+        assert_eq!(
+            loaded.vruno_collection(),
+            Some(directory.path().join("collections/api"))
+        );
+        assert_eq!(
+            loaded.vruno_openapi(),
+            Some(directory.path().join("specs/openapi.yaml"))
+        );
+        loaded.unset("vruno.collection").unwrap();
+        assert_eq!(loaded.vruno_collection(), None);
+    }
+
+    #[test]
+    fn legacy_vruno_bruno_key_is_accepted_and_removed_on_save() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        fs::write(
+            &path,
+            "version = 1\n\n[vruno]\nbruno = \"bru\"\ncollection = \"api\"\n",
+        )
+        .unwrap();
+
+        let config = UserConfig::load_from(path.clone()).unwrap();
+        config.save().unwrap();
+
+        let saved = fs::read_to_string(path).unwrap();
+        assert!(!saved.contains("bruno"));
+        assert!(saved.contains("collection = \"api\""));
+    }
+
+    #[test]
+    fn tui_home_round_trips_normalized_unique_shortcuts() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let mut config = UserConfig::load_from(path.clone()).unwrap();
+        config
+            .set("tui.home", " UUID, json.pretty,uuid, SQL.FORMAT ")
+            .unwrap();
+        config.save().unwrap();
+
+        let mut loaded = UserConfig::load_from(path).unwrap();
+        assert_eq!(loaded.tui_home(), ["uuid", "json.pretty", "sql.format"]);
+        assert_eq!(
+            loaded.get("tui-home").unwrap(),
+            "uuid,json.pretty,sql.format"
+        );
+        loaded.unset("tui.home").unwrap();
+        assert_eq!(loaded.tui_home(), DEFAULT_TUI_HOME);
+    }
+
+    #[test]
+    fn tui_home_rejects_empty_or_unsafe_shortcuts() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = UserConfig::load_from(directory.path().join("config.toml")).unwrap();
+        assert!(config.set("tui.home", " , ").is_err());
+        assert!(config.set("tui.home", "uuid; rm -rf").is_err());
     }
 
     #[test]

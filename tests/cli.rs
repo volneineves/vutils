@@ -35,6 +35,146 @@ fn author_flag_prints_package_metadata_without_a_subcommand() {
 }
 
 #[test]
+fn tui_requires_an_interactive_terminal_and_rejects_output_flags() {
+    let non_interactive = vutils().arg("tui").output().unwrap();
+    assert!(!non_interactive.status.success());
+    assert!(
+        String::from_utf8(non_interactive.stderr)
+            .unwrap()
+            .contains("requires an interactive terminal")
+    );
+
+    let incompatible = vutils().args(["--copy", "tui"]).output().unwrap();
+    assert!(!incompatible.status.success());
+    assert!(
+        String::from_utf8(incompatible.stderr)
+            .unwrap()
+            .contains("output flags cannot be used")
+    );
+}
+
+#[test]
+fn vruno_configures_checks_and_syncs_natively() {
+    let directory = tempfile::tempdir().unwrap();
+    let config = directory.path().join("config.toml");
+    let collection = directory.path().join("Bruno collection");
+    fs::create_dir(&collection).unwrap();
+    fs::write(
+        collection.join("bruno.json"),
+        r#"{"version":"1","name":"API","type":"collection"}"#,
+    )
+    .unwrap();
+    let openapi = directory.path().join("openapi.yaml");
+    fs::write(
+        &openapi,
+        "openapi: 3.1.0\ninfo: { title: API }\npaths:\n  /health:\n    get:\n      summary: Health\n      tags: [System]\n      responses: { '200': { description: OK } }\n",
+    )
+    .unwrap();
+
+    let configured = vutils_with_config(&config)
+        .args([
+            "vruno",
+            "configure",
+            "--collection",
+            collection.to_str().unwrap(),
+            "--openapi",
+            openapi.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(configured.status.success());
+
+    let shown = vutils_with_config(&config)
+        .args(["vruno", "show"])
+        .output()
+        .unwrap();
+    let shown = String::from_utf8(shown.stdout).unwrap();
+    assert!(shown.contains("engine=native"));
+    assert!(shown.contains(&format!("collection={}", collection.display())));
+    assert!(shown.contains(&format!("openapi={}", openapi.display())));
+
+    let checked = vutils_with_config(&config)
+        .args(["vruno", "check", "--format", "json", "--group-by", "path"])
+        .output()
+        .unwrap();
+    assert!(!checked.status.success(), "drift must remain observable");
+    let checked = String::from_utf8(checked.stdout).unwrap();
+    let report: serde_json::Value = serde_json::from_str(&checked).unwrap();
+    assert_eq!(report["missing"].as_array().unwrap().len(), 1);
+
+    let previewed = vutils_with_config(&config)
+        .args(["vruno", "preview"])
+        .output()
+        .unwrap();
+    assert!(previewed.status.success());
+    assert!(
+        String::from_utf8(previewed.stdout)
+            .unwrap()
+            .contains("Preview only")
+    );
+    assert!(!collection.join("System/Health.bru").exists());
+
+    let unconfirmed = vutils_with_config(&config)
+        .args(["vruno", "sync"])
+        .output()
+        .unwrap();
+    assert!(!unconfirmed.status.success());
+    assert!(
+        String::from_utf8(unconfirmed.stderr)
+            .unwrap()
+            .contains("pass --yes to confirm")
+    );
+
+    let synced = vutils_with_config(&config)
+        .args(["vruno", "sync", "--yes"])
+        .output()
+        .unwrap();
+    assert!(synced.status.success());
+    let synced = String::from_utf8(synced.stdout).unwrap();
+    assert!(synced.contains("1 created"));
+    assert!(collection.join("System/Health.bru").is_file());
+
+    let clean = vutils_with_config(&config)
+        .args(["vruno", "check"])
+        .output()
+        .unwrap();
+    assert!(clean.status.success());
+    assert!(String::from_utf8(clean.stdout).unwrap().contains("in sync"));
+}
+
+#[test]
+fn vruno_rejects_in_place_before_loading_or_running_the_integration() {
+    let output = vutils()
+        .args(["--in-place", "vruno", "show"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("--in-place cannot be used with Vruno")
+    );
+}
+
+#[test]
+fn vruno_rejects_deferred_output_failures_for_mutating_commands() {
+    let output = vutils()
+        .args(["--output", "report.txt", "vruno", "sync", "--yes"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(
+        String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("output flags cannot be used with Vruno configure or sync")
+    );
+}
+
+#[test]
 fn config_help_documents_every_supported_default() {
     let output = vutils().args(["config", "--help"]).output().unwrap();
 
@@ -47,6 +187,9 @@ fn config_help_documents_every_supported_default() {
         "crypto.algorithm",
         "crypto.password-env",
         "crypto.password-file",
+        "tui.home",
+        "vruno.collection",
+        "vruno.openapi",
     ] {
         assert!(help.contains(key), "config help is missing key {key}");
     }
@@ -59,6 +202,7 @@ fn config_help_documents_every_supported_default() {
         "v1, v2, v3, v4, v5, v6, v7, v8",
         "hyphenated, simple, urn, braced",
         "xchacha20-poly1305, aes-256-gcm",
+        "json.pretty, uuid, gen.password, enc, dec, config.list",
     ] {
         assert!(help.contains(value), "config help is missing value {value}");
     }
@@ -88,6 +232,7 @@ fn config_help_documents_every_supported_default() {
             "crypto.algorithm",
             "xchacha20-poly1305 aes-256-gcm xchacha20 xchacha aes256-gcm aes",
         ),
+        ("tui.home", "json.pretty,uuid,sql.format"),
     ];
     for (key, values) in documented_values {
         for value in values.split_ascii_whitespace() {
@@ -111,6 +256,9 @@ fn config_help_documents_every_supported_default() {
         ("enc.algorithm", "aes-256-gcm"),
         ("enc.password-env", "VUTILS_PASSWORD"),
         ("enc.password-file", "password.txt"),
+        ("tui-home", "json.pretty,uuid"),
+        ("vruno-collection", "collections/api"),
+        ("vruno-openapi", "specs/openapi.yaml"),
     ] {
         let set = vutils_with_config(&config_path)
             .args(["config", "set", key, value])
@@ -453,6 +601,7 @@ fn config_defaults_apply_and_explicit_flags_override_them() {
     let listed = String::from_utf8(listed.stdout).unwrap();
     assert!(listed.contains("sql.dialect=mysql"));
     assert!(listed.contains("crypto.password-env=TEST_VUTILS_PASSWORD"));
+    assert!(listed.contains("tui.home=json.pretty,uuid,gen.password,enc,dec,config.list"));
     assert!(!listed.contains("test-password"));
 
     let sql = vutils_with_config(&path)
