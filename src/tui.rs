@@ -44,9 +44,15 @@ enum Focus {
 
 enum RunState {
     Idle,
-    Running(Receiver<std::result::Result<Execution, String>>),
+    Running {
+        tool_id: String,
+        tool_name: &'static str,
+        refresh_config: bool,
+        receiver: Receiver<std::result::Result<Execution, String>>,
+    },
 }
 
+#[cfg(test)]
 fn default_home_ids() -> Vec<String> {
     DEFAULT_TUI_HOME
         .iter()
@@ -61,40 +67,125 @@ fn default_home_tools() -> Vec<usize> {
         .collect()
 }
 
+fn replace_form_value(tool: &ToolDef, form: &mut [FieldState], key: &str, value: &str) {
+    let Some(index) = tool.fields.iter().position(|field| field.key == key) else {
+        return;
+    };
+    form[index].replace_value(&tool.fields[index], value);
+}
+
 fn configured_form(tool: &ToolDef, config: Option<&UserConfig>) -> Vec<FieldState> {
     let mut form = new_form(tool);
-    if tool.base != ["vruno", "configure"] {
+    if matches!(tool.base, ["enc"] | ["dec"]) {
+        let (source, source_value) = match config {
+            Some(config) if config.password_env().is_some() => (
+                "environment",
+                config.password_env().unwrap_or_default().to_owned(),
+            ),
+            Some(config) if config.password_file().is_some() => (
+                "file",
+                config
+                    .password_file()
+                    .map_or_else(String::new, |path| path.display().to_string()),
+            ),
+            _ => ("direct", String::new()),
+        };
+        replace_form_value(tool, &mut form, "password_source", source);
+        if source == "environment" {
+            replace_form_value(tool, &mut form, "password_env", &source_value);
+        } else if source == "file" {
+            replace_form_value(tool, &mut form, "password_file", &source_value);
+        }
+        if tool.base == ["enc"]
+            && let Some(config) = config
+        {
+            replace_form_value(tool, &mut form, "algorithm", config.crypto_algorithm());
+        }
         return form;
     }
+
     let Some(config) = config else {
         return form;
     };
-    let values = [
-        (
-            "collection",
-            config
-                .vruno_collection()
-                .map_or_else(String::new, |path| path.display().to_string()),
-        ),
-        (
-            "openapi",
-            config
-                .vruno_openapi()
-                .map_or_else(String::new, |path| path.display().to_string()),
-        ),
-    ];
-    for (key, value) in values {
-        if value.is_empty() {
-            continue;
+
+    if matches!(tool.base.first(), Some(&"vruno")) {
+        let values = [
+            (
+                "collection",
+                config
+                    .vruno_collection()
+                    .map_or_else(String::new, |path| path.display().to_string()),
+            ),
+            (
+                "openapi",
+                config
+                    .vruno_openapi()
+                    .map_or_else(String::new, |path| path.display().to_string()),
+            ),
+        ];
+        for (key, value) in values {
+            if value.is_empty() {
+                continue;
+            }
+            replace_form_value(tool, &mut form, key, &value);
         }
-        let Some(index) = tool.fields.iter().position(|field| field.key == key) else {
-            continue;
-        };
-        if let Some(editor) = form[index].editor_mut() {
-            editor.replace(&value);
-        }
+    } else if let ["config", "set", key] = tool.base
+        && let Ok(value) = config.get(key)
+        && let (Some(state), Some(definition)) = (form.first_mut(), tool.fields.first())
+    {
+        state.replace_value(definition, &value);
     }
     form
+}
+
+fn empty_output(tool: &ToolDef) -> String {
+    format!(
+        "No output for {} yet. Review its parameters and press Ctrl-R to run.",
+        tool.name
+    )
+}
+
+fn resolves_to_config_command(tool: &ToolDef) -> bool {
+    matches!(tool.base.first(), Some(&"config")) || tool.base == ["vruno", "configure"]
+}
+
+fn resolve_configured_home(config: &UserConfig) -> (Vec<usize>, Option<String>) {
+    let (mut home_tools, unknown) = resolve_home_tools(&config.tui_home());
+    if home_tools.is_empty() {
+        home_tools = default_home_tools();
+        return (
+            home_tools,
+            Some("Configured Home has no known operations; using defaults".into()),
+        );
+    }
+    if unknown.is_empty() {
+        (home_tools, None)
+    } else {
+        (
+            home_tools,
+            Some(format!(
+                "Ignored unknown Home shortcuts: {}",
+                unknown.join(", ")
+            )),
+        )
+    }
+}
+
+fn format_exit_status(status: Option<i32>) -> String {
+    status.map_or_else(|| "signal".into(), |code| code.to_string())
+}
+
+fn background_status(tool_name: &str, success: bool, elapsed: Duration, exit: &str) -> String {
+    format!(
+        "{} {} in {:.2?} · exit {exit}",
+        tool_name,
+        if success {
+            "completed in background"
+        } else {
+            "failed in background"
+        },
+        elapsed,
+    )
 }
 
 fn resolve_home_tools(shortcuts: &[String]) -> (Vec<usize>, Vec<String>) {
@@ -144,20 +235,10 @@ impl App {
     }
 
     fn from_config(config: Option<UserConfig>, warning: Option<String>) -> Self {
-        let configured = config
+        let (home_tools, home_warning) = config
             .as_ref()
-            .map_or_else(default_home_ids, UserConfig::tui_home);
-        let (mut home_tools, unknown) = resolve_home_tools(&configured);
-        let mut status = warning;
-        if home_tools.is_empty() {
-            home_tools = default_home_tools();
-            status = Some("Configured Home has no known operations; using defaults".into());
-        } else if !unknown.is_empty() {
-            status = Some(format!(
-                "Ignored unknown Home shortcuts: {}",
-                unknown.join(", ")
-            ));
-        }
+            .map_or_else(|| (default_home_tools(), None), resolve_configured_home);
+        let status = warning.or(home_warning);
         let tool = &TOOLS[home_tools[0]];
         let form = configured_form(tool, config.as_ref());
         Self {
@@ -169,8 +250,8 @@ impl App {
             field_selection: 0,
             editing_field: false,
             focus: Focus::Operations,
-            input: Editor::from(tool.sample.unwrap_or_default()),
-            output: "Select an operation, review its parameters, and press Ctrl-R to run.".into(),
+            input: Editor::default(),
+            output: empty_output(tool),
             output_scroll: 0,
             clipboard_value: None,
             run_state: RunState::Idle,
@@ -209,7 +290,7 @@ impl App {
     }
 
     fn is_running(&self) -> bool {
-        matches!(self.run_state, RunState::Running(_))
+        matches!(self.run_state, RunState::Running { .. })
     }
 
     fn is_home_tool(&self, index: usize) -> bool {
@@ -221,7 +302,10 @@ impl App {
         self.form = configured_form(&tool, self.config.as_ref());
         self.field_selection = 0;
         self.editing_field = false;
-        self.input.replace(tool.sample.unwrap_or_default());
+        self.input.clear();
+        self.output = empty_output(&tool);
+        self.output_scroll = 0;
+        self.clipboard_value = None;
         self.status = tool.description.into();
     }
 
@@ -308,10 +392,13 @@ impl App {
     fn move_tool(&mut self, direction: isize) {
         let count = self.tool_indices().len();
         let selection = &mut self.tool_selections[self.category];
+        let previous = *selection;
         *selection = selection
             .saturating_add_signed(direction)
             .min(count.saturating_sub(1));
-        self.load_selected_tool();
+        if *selection != previous {
+            self.load_selected_tool();
+        }
     }
 
     fn activate_tool(&mut self) {
@@ -424,6 +511,20 @@ impl App {
         };
     }
 
+    fn refresh_config(&mut self) -> std::result::Result<Option<String>, String> {
+        let config = UserConfig::load().map_err(|error| error.to_string())?;
+        let (home_tools, warning) = resolve_configured_home(&config);
+        self.config = Some(config);
+        self.home_tools = home_tools;
+        self.tool_selections[Category::Home as usize] = self.tool_selections
+            [Category::Home as usize]
+            .min(self.home_tools.len().saturating_sub(1));
+        if self.category() == Category::Home {
+            self.load_selected_tool();
+        }
+        Ok(warning)
+    }
+
     fn start_execution(&mut self) {
         if self.is_running() {
             self.status = "A command is already running".into();
@@ -453,7 +554,12 @@ impl App {
                 self.output = "Running…".into();
                 self.output_scroll = 0;
                 self.clipboard_value = None;
-                self.run_state = RunState::Running(receiver);
+                self.run_state = RunState::Running {
+                    tool_id: tool_id(&tool),
+                    tool_name: tool.name,
+                    refresh_config: resolves_to_config_command(&tool),
+                    receiver,
+                };
                 self.status = format!("Running {}", tool.name);
                 self.focus = Focus::Output;
             }
@@ -462,40 +568,74 @@ impl App {
     }
 
     fn poll_execution(&mut self) -> bool {
-        let refresh_vruno_config = self.tool().base == ["vruno", "configure"];
-        let received = match &self.run_state {
+        let (run_tool_id, run_tool_name, refresh_config, received) = match &self.run_state {
             RunState::Idle => return false,
-            RunState::Running(receiver) => receiver.try_recv(),
+            RunState::Running {
+                tool_id,
+                tool_name,
+                refresh_config,
+                receiver,
+            } => (
+                tool_id.clone(),
+                *tool_name,
+                *refresh_config,
+                receiver.try_recv(),
+            ),
         };
         match received {
             Ok(Ok(execution)) => {
                 let success = execution.status == Some(0);
-                self.clipboard_value = clipboard_text(&execution);
-                self.output = format_execution(&execution);
-                self.output_scroll = 0;
-                self.status = format!(
-                    "{} in {:.2?} · exit {}",
-                    if success { "Completed" } else { "Failed" },
-                    execution.elapsed,
-                    execution
-                        .status
-                        .map_or_else(|| "signal".into(), |code| code.to_string())
-                );
-                if success && refresh_vruno_config {
-                    self.config = UserConfig::load().ok();
+                let exit = format_exit_status(execution.status);
+                let config_message = if success && refresh_config {
+                    match self.refresh_config() {
+                        Ok(warning) => warning,
+                        Err(error) => Some(format!("could not reload configuration: {error}")),
+                    }
+                } else {
+                    None
+                };
+                let same_tool = tool_id(self.tool()) == run_tool_id;
+                if same_tool {
+                    self.clipboard_value = clipboard_text(&execution);
+                    self.output = format_execution(&execution);
+                    self.output_scroll = 0;
+                    self.status = format!(
+                        "{} in {:.2?} · exit {exit}",
+                        if success { "Completed" } else { "Failed" },
+                        execution.elapsed,
+                    );
+                } else {
+                    self.status =
+                        background_status(run_tool_name, success, execution.elapsed, &exit);
+                }
+                if let Some(message) = config_message {
+                    self.status.push_str(" · ");
+                    self.status.push_str(&message);
                 }
                 self.run_state = RunState::Idle;
                 true
             }
             Ok(Err(error)) => {
-                self.output = error.clone();
-                self.status = error;
+                if tool_id(self.tool()) == run_tool_id {
+                    self.output = error.clone();
+                    self.output_scroll = 0;
+                    self.clipboard_value = None;
+                    self.status = error;
+                } else {
+                    self.status = format!("{run_tool_name} failed in background: {error}");
+                }
                 self.run_state = RunState::Idle;
                 true
             }
             Err(TryRecvError::Disconnected) => {
-                self.output = "The command worker stopped without a result".into();
-                self.status = "Command worker disconnected".into();
+                if tool_id(self.tool()) == run_tool_id {
+                    self.output = "The command worker stopped without a result".into();
+                    self.output_scroll = 0;
+                    self.clipboard_value = None;
+                    self.status = "Command worker disconnected".into();
+                } else {
+                    self.status = format!("{run_tool_name} worker disconnected in background");
+                }
                 self.run_state = RunState::Idle;
                 true
             }
@@ -941,6 +1081,7 @@ fn render_workspace(frame: &mut Frame, app: &App, area: Rect) {
             input,
             " Input ",
             app.focus == Focus::Input,
+            app.tool().sample,
         );
         render_output(frame, app, output);
     } else {
@@ -981,10 +1122,12 @@ fn render_parameters(frame: &mut Frame, app: &App, area: Rect) {
                 || state.display(definition),
                 |editor| {
                     let (_, column) = editor.cursor_line_column();
-                    visible_suffix(
-                        &editor.value(),
-                        column.saturating_sub(value_width.saturating_sub(1)),
-                    )
+                    let value = if definition.is_secret() {
+                        "•".repeat(editor.value().chars().count())
+                    } else {
+                        editor.value()
+                    };
+                    visible_suffix(&value, column.saturating_sub(value_width.saturating_sub(1)))
                 },
             )
         } else {
@@ -1040,7 +1183,14 @@ fn render_parameters(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-fn render_editor(frame: &mut Frame, editor: &Editor, area: Rect, title: &str, focused: bool) {
+fn render_editor(
+    frame: &mut Frame,
+    editor: &Editor,
+    area: Rect,
+    title: &str,
+    focused: bool,
+    placeholder: Option<&str>,
+) {
     let block = panel(title.into(), focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
@@ -1050,13 +1200,26 @@ fn render_editor(frame: &mut Frame, editor: &Editor, area: Rect, title: &str, fo
     let (line, column) = editor.cursor_line_column();
     let vertical_scroll = line.saturating_sub(usize::from(inner.height.saturating_sub(1)));
     let horizontal_scroll = column.saturating_sub(usize::from(inner.width.saturating_sub(1)));
-    frame.render_widget(
-        Paragraph::new(editor.value()).scroll((
-            usize_to_u16(vertical_scroll),
-            usize_to_u16(horizontal_scroll),
-        )),
-        inner,
-    );
+    if editor.is_empty() {
+        frame.render_widget(
+            Paragraph::new(
+                placeholder
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or("Type or paste input here"),
+            )
+            .style(Style::default().fg(Color::DarkGray))
+            .wrap(Wrap { trim: false }),
+            inner,
+        );
+    } else {
+        frame.render_widget(
+            Paragraph::new(editor.value()).scroll((
+                usize_to_u16(vertical_scroll),
+                usize_to_u16(horizontal_scroll),
+            )),
+            inner,
+        );
+    }
     if focused {
         frame.set_cursor_position((
             inner
@@ -1119,9 +1282,9 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 
     let focus_hint = match app.focus {
         Focus::Operations if app.category() == Category::Home => {
-            "↑↓ shortcut · f/Del remove · R reset"
+            "↑↓ shortcut · ←→ tabs · f/Del remove · R reset"
         }
-        Focus::Operations => "↑↓ operation · f Home · Enter configure",
+        Focus::Operations => "↑↓ operation · ←→ tabs · f Home · Enter configure",
         Focus::Parameters if app.editing_field => "type value · Enter accept · Esc return",
         Focus::Parameters => "↑↓ field · ←→ value · Space toggle · Enter edit",
         Focus::Input => "edit input · Tab output · Ctrl-R run",
@@ -1298,8 +1461,41 @@ mod tests {
 
         assert_eq!(app.category(), Category::Configuration);
         assert_eq!(app.tool().name, "Configuration");
+    }
+
+    #[test]
+    fn configuration_forms_use_effective_values() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = UserConfig::load_from(directory.path().join("config.toml")).unwrap();
+        config.set("sql.dialect", "mysql").unwrap();
+        config.set("uuid.version", "v4").unwrap();
+        config.set("uuid.format", "simple").unwrap();
+        config.set("crypto.algorithm", "aes-256-gcm").unwrap();
+        config
+            .set("crypto.password-env", "BACKEND_PASSWORD")
+            .unwrap();
+        config.set("tui.home", "uuid,json.pretty").unwrap();
+        config.set("vruno.collection", "collections/api").unwrap();
+        config.set("vruno.openapi", "specs/openapi.yaml").unwrap();
+        let mut app = App::from_config(Some(config), None);
+        app.select_category(7);
         app.move_tool(1);
-        assert_eq!(app.tool().name, "Config path");
+
+        for (name, expected) in [
+            ("SQL dialect", "mysql"),
+            ("UUID version", "v4"),
+            ("UUID format", "simple"),
+            ("Encryption algorithm", "aes-256-gcm"),
+            ("Password environment", "BACKEND_PASSWORD"),
+            ("Password file", "password.txt"),
+            ("Home shortcuts", "uuid,json.pretty"),
+            ("Vruno collection", "collections/api"),
+            ("Vruno OpenAPI", "specs/openapi.yaml"),
+        ] {
+            app.move_tool(1);
+            assert_eq!(app.tool().name, name);
+            assert_eq!(app.form[0].value(&app.tool().fields[0]), expected);
+        }
     }
 
     #[test]
@@ -1333,6 +1529,51 @@ mod tests {
                     .to_string(),
             ]
         );
+    }
+
+    #[test]
+    fn encryption_form_exposes_the_configured_password_source() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut config = UserConfig::load_from(directory.path().join("config.toml")).unwrap();
+        config
+            .set("crypto.password-file", "secrets/password.txt")
+            .unwrap();
+        config.set("crypto.algorithm", "aes-256-gcm").unwrap();
+        let mut app = App::from_config(Some(config), None);
+        app.select_category(5);
+
+        let values = app
+            .form
+            .iter()
+            .zip(app.tool().fields)
+            .map(|(state, field)| (field.key, state.value(field)))
+            .collect::<std::collections::HashMap<_, _>>();
+
+        assert_eq!(app.tool().name, "Encrypt");
+        assert_eq!(values["algorithm"], "aes-256-gcm");
+        assert_eq!(values["password_source"], "file");
+        assert_eq!(
+            values["password_file"],
+            directory
+                .path()
+                .join("secrets/password.txt")
+                .display()
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn encryption_without_a_configured_source_requests_a_masked_password() {
+        let directory = tempfile::tempdir().unwrap();
+        let config = UserConfig::load_from(directory.path().join("config.toml")).unwrap();
+        let mut app = App::from_config(Some(config), None);
+        app.select_category(5);
+
+        assert_eq!(app.form[1].value(&app.tool().fields[1]), "direct");
+        assert_eq!(app.form[2].display(&app.tool().fields[2]), "(not set)");
+        app.start_execution();
+        assert_eq!(app.focus, Focus::Parameters);
+        assert_eq!(app.status, "Password is required");
     }
 
     #[test]
@@ -1373,6 +1614,9 @@ mod tests {
         assert!(rendered.contains("Format JSON"));
         assert!(rendered.contains("Input"));
         assert!(rendered.contains("Output"));
+        assert!(rendered.contains("←→ tabs"));
+        assert!(rendered.contains(r#"{"name":"Volnei"#));
+        assert!(app.input.is_empty());
         assert!(!rendered.contains("Terminal too small"));
 
         app.show_help = true;
@@ -1385,6 +1629,67 @@ mod tests {
             .map(|cell| cell.symbol())
             .collect::<String>();
         assert!(help.contains("? / Esc closes help."));
+    }
+
+    #[test]
+    fn input_samples_are_placeholders_instead_of_submitted_content() {
+        let mut app = app();
+        assert!(app.input.is_empty());
+
+        app.focus = Focus::Input;
+        press(&mut app, KeyCode::Char('{'));
+
+        assert_eq!(app.input.value(), "{");
+    }
+
+    #[test]
+    fn changing_operation_or_tab_clears_unrelated_output() {
+        let mut app = app();
+        app.output = "result from Format JSON".into();
+        app.clipboard_value = Some("result from Format JSON".into());
+        app.output_scroll = 4;
+
+        app.move_tool(1);
+
+        assert_eq!(app.tool().name, "UUID");
+        assert_eq!(app.output, empty_output(app.tool()));
+        assert_eq!(app.output_scroll, 0);
+        assert!(app.clipboard_value.is_none());
+
+        app.output = "result from UUID".into();
+        app.switch_category(1);
+
+        assert_eq!(app.category(), Category::Random);
+        assert_eq!(app.output, empty_output(app.tool()));
+        assert!(!app.output.contains("result from UUID"));
+    }
+
+    #[test]
+    fn background_completion_does_not_replace_the_selected_tools_output() {
+        let mut app = app();
+        let source = *app.tool();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        app.run_state = RunState::Running {
+            tool_id: tool_id(&source),
+            tool_name: source.name,
+            refresh_config: false,
+            receiver,
+        };
+        app.select_category(1);
+        let selected_output = app.output.clone();
+        sender
+            .send(Ok(Execution {
+                status: Some(0),
+                stdout: b"unrelated result".to_vec(),
+                stderr: Vec::new(),
+                elapsed: Duration::from_millis(5),
+            }))
+            .unwrap();
+
+        assert!(app.poll_execution());
+        assert_eq!(app.output, selected_output);
+        assert!(!app.output.contains("unrelated result"));
+        assert!(app.status.contains("completed in background"));
     }
 
     #[test]
@@ -1404,6 +1709,56 @@ mod tests {
             .collect::<String>();
         assert!(rendered.contains("6 Vruno"));
         assert!(rendered.contains("7 Configuration"));
+    }
+
+    #[test]
+    fn long_operation_lists_keep_the_selected_item_visible() {
+        let backend = TestBackend::new(MIN_WIDTH, MIN_HEIGHT);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = app();
+        app.select_category(7);
+        press(&mut app, KeyCode::End);
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert_eq!(app.tool().name, "Manual page");
+        assert!(rendered.contains("Manual page"));
+    }
+
+    #[test]
+    fn password_field_stays_masked_while_editing() {
+        let backend = TestBackend::new(100, MIN_HEIGHT);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let config = UserConfig::load_from(directory.path().join("config.toml")).unwrap();
+        let mut app = App::from_config(Some(config), None);
+        app.select_category(5);
+        app.focus = Focus::Parameters;
+        app.field_selection = 2;
+        app.editing_field = true;
+        app.form[2]
+            .editor_mut()
+            .unwrap()
+            .replace("never-render-this");
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(!rendered.contains("never-render-this"));
+        assert!(rendered.contains("••••"));
     }
 
     #[test]

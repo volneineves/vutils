@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-08-15
+## [0.5.0] - 2026-08-16
 
 ### Added
 
@@ -16,10 +16,15 @@ All notable changes to this project are documented here. The format follows Keep
 - Dedicated Configuration tab in the last top-level position, now available through shortcut `7` while retaining configuration access from Home.
 - Random category for local generators, with an inline reminder that UUID v3 and v5 are deterministic rather than random.
 - Native Vruno OpenAPI-to-Bruno synchronization, with persisted collection/OpenAPI paths, conservative local-data-preserving merges, safe drift checks, dry-run previews, and confirmed writes without a `bru` dependency.
+- Typed Configuration-tab editors for every supported setting, including reset/unset flows and persisted-value prefill.
+- Dimmed input examples that behave as placeholders instead of submitted content.
+- Typed TUI coverage for every operational CLI leaf command, with an automated catalog-coverage regression test.
+- Guided Encrypt/Decrypt password sources with configured-source prefill, masked direct secrets, redacted command previews, and child-process argument protection.
 
 ### Changed
 
 - Replaced the legacy JSON/Data/Text/Backend tab model with the fixed Home, Random, Formatters, Parsers, Codecs, Security, Vruno, and Configuration workflow taxonomy.
+- Scoped TUI output to the selected operation so tab changes and background completions cannot leak unrelated results into the active workspace.
 
 ## [0.4.1] - 2026-08-09
 

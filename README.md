@@ -84,9 +84,13 @@ Run the full-screen interface in any interactive terminal:
 vutils tui
 ```
 
-The TUI opens on a customizable **Home** with the most common backend actions: JSON formatting, UUID and password generation, encryption/decryption, and the effective vutils configuration. Its fixed workflow tabs are **Random**, **Formatters**, **Parsers**, **Codecs**, **Security**, **Vruno**, and **Configuration**. Formatters groups output normalization such as JSON, SQL, cURL, YAML, XML, text, and byte sizes; Parsers groups validation, extraction, conversion, regex inspection, model inference, cron, and time utilities. Each operation exposes only its relevant parameters, a multiline input editor when needed, the exact generated CLI command, and a scrollable output preview. The Random tab keeps one caveat visible in the UUID version help: v3 and v5 are deterministic for the same namespace and name.
+The TUI opens on a customizable **Home** with the most common backend actions: JSON formatting, UUID and password generation, encryption/decryption, and the effective vutils configuration. Its fixed workflow tabs are **Random**, **Formatters**, **Parsers**, **Codecs**, **Security**, **Vruno**, and **Configuration**. Formatters groups output normalization such as JSON, SQL, cURL, YAML, XML, text, and byte sizes; Parsers groups validation, extraction, conversion, regex inspection, model inference, cron, and time utilities. Each operation exposes only its relevant parameters, an empty multiline input editor with a dimmed example placeholder when needed, the exact generated CLI command, and an output preview scoped to the selected operation. The Configuration tab provides typed editors for every supported setting, plus an explicit reset action for restoring defaults or clearing optional values. The Random tab keeps one caveat visible in the UUID version help: v3 and v5 are deterministic for the same namespace and name.
 
 Use `0` to return Home; `1` opens Random, `2` Formatters, `3` Parsers, `4` Codecs, `5` Security, `6` Vruno, and `7` Configuration. `[`/`]` or `h`/`l` from the operations panel also change tabs. Navigate operations and fields with `j`/`k` or the arrow keys; `h`/`l` changes choices and numeric values in the parameter panel. Choice fields—such as UUID v1 through v8—change with left/right; `Space` toggles options such as password special characters; `Enter` edits text and numeric values such as password length. Run with `Ctrl-R` or `F5`; close with `q`, `:q`, `:qa`, or `:qall`; and press `?` for the complete shortcut reference. Vim keys remain ordinary text while editing Input or a field.
+
+Every operational leaf command in the CLI tree has a typed TUI operation, guarded by a catalog-coverage test. Command-specific choices and flags are presented as fields; commands using the common `InputOptions` contract receive their content from the empty editor, whose dimmed sample is only a placeholder. Global file-output flags remain CLI concerns because the TUI safely captures results in its scoped preview and exposes UTF-8 copy with `y`.
+
+Encrypt and Decrypt provide a **Password source** choice: a direct masked value, an environment variable, a local file, or the configured source. When `crypto.password-env` or `crypto.password-file` is set, the effective source is preselected and its name/path is visible; otherwise the form asks for a direct password before running. Direct passwords render as bullets, appear as `<redacted>` in the command preview, and are passed through an ephemeral child-process environment variable instead of being exposed in its argument list.
 
 To customize Home, select any operation in its category and press `f` to add or remove it. From Home, `Delete` removes the selected shortcut and `R` restores the built-in set. Changes are saved atomically under `tui.home` in the existing `config.toml`; Home only references known vutils operations and never executes arbitrary shell commands.
 
@@ -138,7 +142,7 @@ A ready-to-copy version of the spec is available at [`extras/lazyvim/vutils.lua`
 Transformations accept a positional value or existing file path, an explicit `--input <path>`, or stdin. Existing regular files are detected automatically; use `--literal` when text that happens to match a file name must not be read from disk. Output is written to stdout by default.
 
 ```bash
-printf '%s' '{"name":"Ana"}' | vutils json pretty
+printf '%s' '{"name":"Volnei"}' | vutils json pretty
 vutils json pretty ./payload.json
 vutils json to-yaml payload.json --output payload.yaml
 vutils --in-place json pretty payload.json
@@ -424,7 +428,7 @@ YAML, XML, and dotenv formatting is semantic and may not preserve comments or or
 ## Local code generation
 
 ```bash
-vutils code types --lang rust --name User '{"id":1,"name":"Ana"}'
+vutils code types --lang rust --name User '{"id":1,"name":"Volnei"}'
 vutils code types --lang kotlin --name ApiResponse --input response.json
 ```
 

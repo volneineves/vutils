@@ -27,8 +27,10 @@ pub(super) fn spawn(
     thread::spawn(move || {
         let started = Instant::now();
         let result = (|| {
+            let (args, sensitive_environment) = protect_direct_secrets(args);
             let mut child = Command::new(executable)
                 .args(args)
+                .envs(sensitive_environment)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
@@ -58,6 +60,37 @@ pub(super) fn spawn(
         let _ = sender.send(result);
     });
     Ok(receiver)
+}
+
+fn protect_direct_secrets(args: Vec<String>) -> (Vec<String>, Vec<(String, String)>) {
+    const PASSWORD_FLAG: &[(&str, &str, &str)] =
+        &[("--passwd", "--passwd-env", "VUTILS_TUI_PASSWORD")];
+    const SECRET_FLAG: &[(&str, &str, &str)] = &[("--secret", "--secret-env", "VUTILS_TUI_SECRET")];
+    let sensitive_flags = match args.first().map(String::as_str) {
+        Some("enc" | "dec") => PASSWORD_FLAG,
+        Some("hmac" | "password-hash" | "totp") => SECRET_FLAG,
+        _ => return (args, Vec::new()),
+    };
+    let mut protected = Vec::with_capacity(args.len());
+    let mut environment = Vec::new();
+    let mut arguments = args.into_iter();
+    while let Some(argument) = arguments.next() {
+        let Some((_, environment_flag, environment_name)) = sensitive_flags
+            .iter()
+            .find(|(sensitive_flag, _, _)| *sensitive_flag == argument)
+        else {
+            protected.push(argument);
+            continue;
+        };
+        let Some(secret) = arguments.next() else {
+            protected.push(argument);
+            continue;
+        };
+        protected.push((*environment_flag).into());
+        protected.push((*environment_name).into());
+        environment.push(((*environment_name).into(), secret));
+    }
+    (protected, environment)
 }
 
 pub(super) fn clipboard_text(execution: &Execution) -> Option<String> {
@@ -131,5 +164,34 @@ mod tests {
     #[test]
     fn text_output_escapes_terminal_controls() {
         assert_eq!(sanitize_text("safe\u{1b}[31m"), "safe\\u{1b}[31m");
+    }
+
+    #[test]
+    fn direct_secrets_are_moved_out_of_child_process_arguments() {
+        let (args, environment) = protect_direct_secrets(vec![
+            "enc".into(),
+            "--passwd".into(),
+            "not-visible-in-argv".into(),
+        ]);
+
+        assert_eq!(args, ["enc", "--passwd-env", "VUTILS_TUI_PASSWORD"]);
+        assert_eq!(
+            environment,
+            [("VUTILS_TUI_PASSWORD".into(), "not-visible-in-argv".into())]
+        );
+        assert!(
+            !args
+                .iter()
+                .any(|argument| argument == "not-visible-in-argv")
+        );
+    }
+
+    #[test]
+    fn secret_like_values_are_untouched_for_unrelated_commands() {
+        let original = vec!["semver".into(), "compare".into(), "--secret".into()];
+        let (args, environment) = protect_direct_secrets(original.clone());
+
+        assert_eq!(args, original);
+        assert!(environment.is_empty());
     }
 }
