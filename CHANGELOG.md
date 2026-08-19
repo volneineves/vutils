@@ -9,10 +9,15 @@ All notable changes to this project are documented here. The format follows Keep
 ### Added
 
 - UUID validation through `vutils uuid --validate <uuid>` and the Validators tab, with support for hyphenated, simple, URN, and braced representations.
+- `vu` as a complete short executable alias, included in release archives, DEB packages, and RPM packages.
+- Vruno OpenAPI loading from explicit HTTP(S) URLs, with bounded downloads, plus `file://`, collection-directory, and `bruno.json` location support for local Bruno collections.
+- Automatic reuse of the last successfully used encryption key through the native operating-system credential store, with `config forget-key` for explicit removal.
 
 ### Changed
 
 - Linux release artifacts and CI are built on Ubuntu 22.04, with an automated gate that prevents binaries from requiring a glibc version newer than 2.35.
+- Encrypt and Decrypt use `--key`, `--key-file`, and `--key-env` as their primary options while retaining the former `--passwd*` names as visible backward-compatible aliases.
+- TUI arrow keys now stay within Input and Output, with `Tab`/`Shift-Tab` providing predictable panel navigation and `h`/`l` retaining Vim-style compatibility.
 
 ## [0.6.0] - 2026-08-16
 

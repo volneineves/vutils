@@ -1,6 +1,6 @@
 # vutils
 
-`vutils` is a fast, offline, pipeline-friendly developer toolkit written in Rust. It keeps routine transformations on your machine: no HTTP client, database driver, telemetry, remote lookup, or shell execution is included.
+`vutils` is a fast, pipeline-friendly developer toolkit written in Rust. Routine transformations stay on your machine: there is no database driver, telemetry, remote lookup, or shell execution. The only opt-in network operation is downloading an OpenAPI document from an explicit HTTP(S) URL for Vruno.
 
 ## Install without Rust or Cargo
 
@@ -13,6 +13,7 @@ curl -fL -o vutils-latest-amd64.deb https://github.com/volneineves/vutils/releas
 sudo apt install ./vutils-latest-amd64.deb
 rm -f ./vutils-latest-amd64.deb
 vutils --version
+vu --version
 ```
 
 The URL always follows the newest stable GitHub release and ignores prereleases created from `main`.
@@ -24,6 +25,7 @@ curl -fL -o vutils-latest-x86_64.rpm https://github.com/volneineves/vutils/relea
 sudo dnf install ./vutils-latest-x86_64.rpm
 rm -f ./vutils-latest-x86_64.rpm
 vutils --version
+vu --version
 ```
 
 On systems without `dnf`, replace the install line with `sudo rpm -U ./vutils-latest-x86_64.rpm`.
@@ -32,13 +34,14 @@ On systems without `dnf`, replace the install line with `sudo rpm -U ./vutils-la
 
 ```bash
 curl -fL -o vutils-linux-x86_64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-linux-x86_64.tar.gz
-tar -xzf vutils-linux-x86_64.tar.gz ./vutils
+tar -xzf vutils-linux-x86_64.tar.gz ./vutils ./vu
 sudo install -m 0755 vutils /usr/local/bin/vutils
-rm -f ./vutils-linux-x86_64.tar.gz ./vutils
-vutils --version
+sudo install -m 0755 vu /usr/local/bin/vu
+rm -f ./vutils-linux-x86_64.tar.gz ./vutils ./vu
+vu --version
 ```
 
-The raw `vutils-linux-x86_64` asset is also available; make it executable with `chmod +x` before placing it on `PATH`.
+Raw `vutils-linux-x86_64` and `vu-linux-x86_64` assets are also available; make the chosen binary executable with `chmod +x` before placing it on `PATH`.
 
 ### macOS
 
@@ -46,20 +49,22 @@ Apple Silicon:
 
 ```bash
 curl -fL -o vutils-macos-aarch64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-aarch64.tar.gz
-tar -xzf vutils-macos-aarch64.tar.gz ./vutils
+tar -xzf vutils-macos-aarch64.tar.gz ./vutils ./vu
 sudo install -m 0755 vutils /usr/local/bin/vutils
-rm -f ./vutils-macos-aarch64.tar.gz ./vutils
-vutils --version
+sudo install -m 0755 vu /usr/local/bin/vu
+rm -f ./vutils-macos-aarch64.tar.gz ./vutils ./vu
+vu --version
 ```
 
 Intel Mac:
 
 ```bash
 curl -fL -o vutils-macos-x86_64.tar.gz https://github.com/volneineves/vutils/releases/latest/download/vutils-macos-x86_64.tar.gz
-tar -xzf vutils-macos-x86_64.tar.gz ./vutils
+tar -xzf vutils-macos-x86_64.tar.gz ./vutils ./vu
 sudo install -m 0755 vutils /usr/local/bin/vutils
-rm -f ./vutils-macos-x86_64.tar.gz ./vutils
-vutils --version
+sudo install -m 0755 vu /usr/local/bin/vu
+rm -f ./vutils-macos-x86_64.tar.gz ./vutils ./vu
+vu --version
 ```
 
 The binaries are not currently signed with an Apple Developer certificate, so macOS may request explicit approval before the first execution.
@@ -72,9 +77,9 @@ For an asset downloaded manually into the current directory, stream the checksum
 curl -fsSL https://github.com/volneineves/vutils/releases/latest/download/SHA256SUMS | sha256sum -c - --ignore-missing
 ```
 
-Linux artifacts are built on Ubuntu 22.04 and verified not to require a glibc version newer than 2.35, so they run on Ubuntu 22.04 and newer compatible distributions. Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust, Cargo, or a network connection.
+Linux artifacts are built on Ubuntu 22.04 and both executable names are verified not to require a glibc version newer than 2.35, so they run on Ubuntu 22.04 and newer compatible distributions. Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust or Cargo; only Vruno needs network access when given an HTTP(S) OpenAPI URL.
 
-Use `vutils --version`, `vutils --author`, or `vutils --help` to inspect the installed CLI metadata.
+`vu` is a complete short alias for `vutils`; use either name for every command.
 
 ## Interactive terminal interface
 
@@ -86,11 +91,11 @@ vutils tui
 
 The TUI opens on a customizable **Home** with the most common backend actions: JSON and SQL formatting, UUID and password generation, and encryption/decryption. Its fixed workflow tabs are **Random**, **Formatters**, **Parsers**, **Validators**, **Codecs**, **Security**, **Vruno**, and **Configuration**. Formatters groups output normalization such as JSON, SQL, cURL, YAML, XML, text, and byte sizes; Parsers groups extraction, conversion, regex inspection, model inference, cron, and time utilities; Validators groups UUID, JSON, JSON Schema, YAML, CSV, TOML, XML, and dotenv validation. Each operation exposes only its relevant parameters, an empty multiline input editor with a dimmed example placeholder when needed, the exact generated CLI command, and an output preview scoped to the selected operation. The Configuration tab provides typed editors for every supported setting, plus an explicit reset action for restoring defaults or clearing optional values. The Random tab keeps one caveat visible in the UUID version help: v3 and v5 are deterministic for the same namespace and name.
 
-Use `0` to return Home; `1` opens Random, `2` Formatters, `3` Parsers, `4` Validators, `5` Codecs, `6` Security, `7` Vruno, and `8` Configuration. `[`/`]` or `h`/`l` from the operations panel also change tabs. Navigate operations and fields with `j`/`k` or the arrow keys; `h`/`l` changes choices and numeric values in the parameter panel. Choice fields—such as UUID v1 through v8—change with left/right; `Space` toggles options such as password special characters; `Enter` edits text and numeric values such as password length. Run with `Ctrl-R` or `F5`; `q` opens a safe quit confirmation (defaulting to **No**), while explicit `:q`, `:qa`, `:qall`, or `Ctrl-C` close directly; press `?` for the complete shortcut reference. Vim keys remain ordinary text while editing Input or a field.
+Use `0` to return Home; `1` opens Random, `2` Formatters, `3` Parsers, `4` Validators, `5` Codecs, `6` Security, `7` Vruno, and `8` Configuration. `[`/`]` or `h`/`l` from the operations panel also change tabs. `Tab` and `Shift-Tab` are the predictable way to move between panels. Arrow keys stay local to the active panel: they navigate operations and fields, edit Input, and scroll Output without unexpectedly changing focus. `h`/`l` remains available for Vim-style panel navigation and changes choices or numeric values in Parameters. `Space` toggles options; `Enter` edits text and numeric values. Run with `Ctrl-R` or `F5`; `q` opens a safe quit confirmation (defaulting to **No**), while explicit `:q`, `:qa`, `:qall`, or `Ctrl-C` close directly; press `?` for the complete shortcut reference. Vim keys remain ordinary text while editing Input or a field.
 
 Every operational leaf command in the CLI tree has a typed TUI operation, guarded by a catalog-coverage test. Command-specific choices and flags are presented as fields; commands using the common `InputOptions` contract receive their content from the empty editor, whose dimmed sample is only a placeholder. Global file-output flags remain CLI concerns because the TUI safely captures results in its scoped preview and exposes UTF-8 copy with `y`.
 
-Encrypt and Decrypt provide a **Password source** choice: a direct masked value, an environment variable, a local file, or the configured source. When `crypto.password-env` or `crypto.password-file` is set, the effective source is preselected and its name/path is visible; otherwise the form asks for a direct password before running. Direct passwords render as bullets, appear as `<redacted>` in the command preview, and are passed through an ephemeral child-process environment variable instead of being exposed in its argument list.
+Encrypt and Decrypt provide a **Key source** choice: automatic resolution, a direct masked key, an environment variable, or a local file. Automatic resolution uses the configured legacy-named `crypto.password-env`/`crypto.password-file` source first and then the last saved key. Direct keys render as bullets, appear as `<redacted>` in the command preview, and are passed through an ephemeral child-process environment variable instead of being exposed in its argument list. After successful encryption or decryption, the key itself is remembered in the native operating-system credential store, never in `config.toml`.
 
 To customize Home, select any operation in its category and press `f` to add or remove it. From Home, `Delete` removes the selected shortcut and `R` restores the built-in set. Changes are saved atomically under `tui.home` in the existing `config.toml`; Home only references known vutils operations and never executes arbitrary shell commands.
 
@@ -177,21 +182,21 @@ vutils config unset uuid.format
 | `crypto.password-env` | Environment-variable name only; its value is the secret passphrase or text for `enc`/`dec` | not set |
 | `crypto.password-file` | Local file path | not set |
 | `tui.home` | Comma-separated operation IDs | `json.pretty,uuid,gen.password,enc,dec,sql.format` |
-| `vruno.collection` | Bruno collection directory | not set |
-| `vruno.openapi` | Local OpenAPI 3.x JSON or YAML file | not set |
+| `vruno.collection` | Local Bruno collection directory, `bruno.json` path, or `file://` URL | not set |
+| `vruno.openapi` | Local path, `file://` URL, or HTTP(S) URL to an OpenAPI 3.x JSON/YAML document | not set |
 
-Relative Vruno paths are resolved from the directory containing `config.toml`. `vutils vruno configure` validates and stores absolute paths atomically.
+Relative Vruno paths are resolved from the directory containing `config.toml`. `vutils vruno configure` validates local paths and stores the effective locations atomically; URLs are retained as URLs.
 
 ### Vruno: Bruno OpenAPI sync
 
 Vruno implements OpenAPI drift detection and Bruno collection synchronization directly in vutils. It follows the conservative merge model proposed in [Bruno PR #7706](https://github.com/usebruno/bruno/pull/7706), but does not require `bru` or Node.js. Existing request values, authentication, tests, scripts, assertions, variables, and documentation are preserved; OpenAPI controls the URL and the structure of parameters, headers, and request bodies.
 
-Configure one local OpenAPI 3.x `.json`, `.yaml`, or `.yml` file and its target collection:
+Configure an OpenAPI 3.x `.json`, `.yaml`, or `.yml` source and its local target collection. The collection accepts its directory, its `bruno.json`, or a `file://` URL; the OpenAPI source additionally accepts HTTP(S):
 
 ```bash
 vutils vruno configure \
-  --collection /path/to/bruno-collection \
-  --openapi /path/to/openapi.yaml
+  --collection file:///path/to/bruno-collection/ \
+  --openapi https://example.com/openapi.yaml
 vutils vruno show
 ```
 
@@ -204,9 +209,9 @@ vutils vruno sync --yes             # creates and updates collection requests
 vutils vruno check --format json --group-by path
 ```
 
-`sync` requires `--yes`. Stale requests are reported but never deleted, so removing local collection data always remains an explicit manual decision. The native engine currently supports classic Bruno collections (`bruno.json` with `.bru` request files) and bundled OpenAPI documents with internal `$ref` pointers. It refuses `opencollection.yml` and external `$ref` files instead of risking a lossy partial conversion. The same Configure, Show setup, Check drift, Preview sync, and Sync collection operations are available under TUI tab `7`.
+`sync` requires `--yes`. Stale requests are reported but never deleted, so removing local collection data always remains an explicit manual decision. HTTP(S) collection URLs are rejected because synchronization needs a writable local directory containing multiple files. Remote OpenAPI downloads have a 30-second total timeout and a 10 MiB response limit; the URL path must end in `.json`, `.yaml`, or `.yml`. The native engine currently supports classic Bruno collections (`bruno.json` with `.bru` request files) and bundled OpenAPI documents with internal `$ref` pointers. It refuses `opencollection.yml` and external `$ref` files instead of risking a lossy partial conversion. The same Configure, Show setup, Check drift, Preview sync, and Sync collection operations are available under TUI tab `7`.
 
-Passwords are never stored directly in `config.toml`. Configure a source instead:
+Keys are never stored directly in `config.toml`. Configure a reusable source when environment/file indirection is preferable:
 
 ```bash
 # The variable value is a reusable secret passphrase/text, not a login password.
@@ -217,13 +222,13 @@ ENCRYPTED="$(vutils enc 'Texto secreto')"  # reads VUTILS_PASSWORD
 vutils dec "$ENCRYPTED"                    # reads VUTILS_PASSWORD
 ```
 
-`crypto.password-env` is therefore an automation pointer, not the secret itself: the configuration saves only an environment-variable name, while that variable's value supplies the secret passphrase or arbitrary text used by `enc` and `dec`. Setting `crypto.password-env` clears `crypto.password-file` and vice versa. A relative password-file path is resolved from the config directory. `dec` still detects the algorithm recorded in each envelope; `crypto.algorithm` selects the default for new `enc` output, while an explicit `--alg` overrides it.
+`crypto.password-env` is therefore an automation pointer, not the secret itself: the configuration saves only an environment-variable name, while that variable's value supplies the key used by `enc` and `dec`. Setting `crypto.password-env` clears `crypto.password-file` and vice versa. A relative key-file path is resolved from the config directory. Every successful `enc` or `dec` also replaces the last key in the operating-system credential store, so later commands can omit all key options; explicit `--key*` options take precedence, followed by the configured environment/file source and then the saved key. Remove that saved credential with `vutils config forget-key`. If the native credential store is unavailable, an explicit key still completes the operation and vutils prints a warning that it could not remember it. `dec` detects the algorithm recorded in each envelope; `crypto.algorithm` selects the default for new `enc` output, while an explicit `--alg` overrides it.
 
 The default config locations are `$XDG_CONFIG_HOME/vutils/config.toml` (or `~/.config/vutils/config.toml`) on Linux and `~/Library/Application Support/vutils/config.toml` on macOS. Set `VUTILS_CONFIG` to use a different file, which is also useful for isolated project profiles.
 
 ## Complete command reference
 
-Every command runs locally. The tables describe the purpose of every command; use `vutils <command> --help` or `vutils help <command>` to see all flags, accepted values, defaults, and input modes.
+Except for an explicit Vruno HTTP(S) OpenAPI source, commands operate on local input. The tables describe every command; use `vutils <command> --help` or `vutils help <command>` to see all flags, accepted values, defaults, and input modes.
 
 ### Identifiers, fixtures, and validation
 
@@ -303,8 +308,8 @@ vutils gzip compress --input payload.bin --output payload.bin.gz
 vutils gzip decompress --input payload.bin.gz --output payload-restored.bin
 
 # Binary encryption and authenticated decryption
-vutils enc --input payload.bin --passwd-env VUTILS_PASSWORD --output payload.vutils
-vutils dec --input payload.vutils --passwd-env VUTILS_PASSWORD --output payload-decrypted.bin
+vutils enc --input payload.bin --key-env VUTILS_PASSWORD --output payload.vutils
+vutils dec --input payload.vutils --key-env VUTILS_PASSWORD --output payload-decrypted.bin
 cmp payload.bin payload-decrypted.bin
 ```
 
@@ -369,7 +374,7 @@ Without `--output`, decoded binary bytes are written directly to stdout and can 
 | `mime` | Look up a MIME type from a file extension using the built-in table. |
 | `tui` | Open the category-based full-screen workbench for interactive transformations and generators. |
 | `vruno configure/show/check/preview/sync` | Configure and run Bruno OpenAPI collection drift checks and synchronization. |
-| `config path/list/get/set/unset` | Inspect or manage validated per-user defaults for UUID, SQL, encryption, the TUI Home, and Vruno. |
+| `config path/list/get/set/unset/forget-key` | Inspect or manage validated per-user defaults and remove the key saved in the OS credential store. |
 | `completion` | Generate Bash, Zsh, Fish, PowerShell, or Elvish completion scripts. |
 | `man` | Generate the `vutils(1)` manual page. |
 
@@ -477,25 +482,28 @@ vutils sql format 'select id,name from users where id=$1'
 
 Supported dialects are `generic`, `postgres`, `mysql`, `sqlite`, and `mssql`. Formatting validates the SQL syntax locally before producing output.
 
-## Password encryption and decryption
+## Key-based encryption and decryption
 
 `enc` encrypts arbitrary text or binary input; `dec` authenticates the envelope before returning the original bytes. XChaCha20-Poly1305 is the default:
 
 ```bash
-vutils enc "Texto secreto" --passwd 123
+vutils enc "Texto secreto" --key 123
 export VUTILS_PASSWORD='use-a-strong-password'
-ENCRYPTED="$(vutils enc 'Texto secreto' --passwd-env VUTILS_PASSWORD)"
-vutils dec "$ENCRYPTED" --passwd-env VUTILS_PASSWORD
-vutils enc --input secret.bin --passwd-file password.txt --output secret.vutils
-vutils dec --input secret.vutils --passwd-file password.txt --output secret.bin
+ENCRYPTED="$(vutils enc 'Texto secreto' --key-env VUTILS_PASSWORD)"
+vutils dec "$ENCRYPTED" --key-env VUTILS_PASSWORD
+vutils enc --input secret.bin --key-file password.txt --output secret.vutils
+vutils dec --input secret.vutils --key-file password.txt --output secret.bin
+# The last successfully used key can now be omitted.
+vutils enc "Outro texto"
+vutils config forget-key
 ```
 
 Select or inspect algorithms with:
 
 ```bash
 vutils enc --help
-vutils enc "Texto secreto" --passwd 123 --alg xchacha20-poly1305
-vutils dec "$ENCRYPTED" --passwd-env VUTILS_PASSWORD --alg aes-256-gcm
+vutils enc "Texto secreto" --key 123 --alg xchacha20-poly1305
+vutils dec "$ENCRYPTED" --key-env VUTILS_PASSWORD --alg aes-256-gcm
 ```
 
 | Algorithm | Notes |
@@ -503,13 +511,13 @@ vutils dec "$ENCRYPTED" --passwd-env VUTILS_PASSWORD --alg aes-256-gcm
 | `xchacha20-poly1305` | Default. Modern authenticated stream cipher with an extended random nonce and no dependency on AES hardware acceleration. |
 | `aes-256-gcm` | Widely supported authenticated encryption with a 256-bit derived key and a random 96-bit nonce. |
 
-The `vutils:v1` envelope records the algorithm, KDF, random salt, random nonce, and authenticated ciphertext in URL-safe Base64. The password-derived key uses the RFC 9106 memory-constrained profile for Argon2id v1.3 (`m=65536 KiB`, `t=3`, `p=4`, 128-bit salt, 256-bit key), fixed for envelope v1 so future library-default changes cannot break existing data. Decryption rejects a wrong password, altered data, unsupported versions, and an optional mismatched `--alg`. Successful `enc` and `dec` commands print `algorithm: <name>` to stderr while stdout remains the unmodified result channel for pipes and binary files.
+The `vutils:v1` envelope records the algorithm, KDF, random salt, random nonce, and authenticated ciphertext in URL-safe Base64. The key-derived encryption key uses the RFC 9106 memory-constrained profile for Argon2id v1.3 (`m=65536 KiB`, `t=3`, `p=4`, 128-bit salt, 256-bit key), fixed for envelope v1 so future library-default changes cannot break existing data. Decryption rejects a wrong key, altered data, unsupported versions, and an optional mismatched `--alg`. Successful `enc` and `dec` commands print `algorithm: <name>` to stderr while stdout remains the unmodified result channel for pipes and binary files.
 
 SHA-256 and SHA-512 are deliberately not accepted by `--alg`: SHA is one-way hashing and cannot support `dec`. Use `vutils hash sha256` or `vutils hash sha512` when a digest is the intended result.
 
 ## Secrets
 
-Encryption prefers `--passwd-file` or `--passwd-env`. HMAC, TOTP, and password hashing prefer stdin, `--secret-file`, or `--secret-env`. `--passwd` and `--secret` are convenient but may be visible in shell history and process listings.
+Encryption prefers `--key-file` or `--key-env`. The former `--passwd`, `--passwd-file`, and `--passwd-env` spellings remain visible aliases for backward compatibility. HMAC, TOTP, and password hashing prefer stdin, `--secret-file`, or `--secret-env`. Direct `--key` and `--secret` values are convenient but may be visible in shell history and process listings.
 
 ```bash
 printf '%s' 'password' | vutils password-hash argon2-hash
@@ -555,7 +563,7 @@ cargo package
 
 ## Automated releases
 
-Every push to `main` creates a uniquely versioned GitHub prerelease named `v<crate-version>-build.<run>.<attempt>`. Pushing a `v*` tag creates a stable release. Both paths build and attach Linux and macOS binaries, Debian and RPM packages, plus `SHA256SUMS`. Stable aliases `vutils-latest-amd64.deb` and `vutils-latest-x86_64.rpm` keep installation URLs independent of the version number.
+Every push to `main` creates a uniquely versioned GitHub prerelease named `v<crate-version>-build.<run>.<attempt>`. Pushing a `v*` tag creates a stable release. Both paths build and attach `vutils` and `vu` Linux/macOS binaries, Debian and RPM packages containing both commands, plus `SHA256SUMS`. Stable aliases `vutils-latest-amd64.deb` and `vutils-latest-x86_64.rpm` keep installation URLs independent of the version number.
 
 ## License
 

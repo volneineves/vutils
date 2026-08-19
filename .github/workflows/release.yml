@@ -24,14 +24,17 @@ jobs:
             os: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             binary: target/x86_64-unknown-linux-gnu/release/vutils
+            alias: target/x86_64-unknown-linux-gnu/release/vu
           - name: macos-x86_64
             os: macos-15-intel
             target: x86_64-apple-darwin
             binary: target/x86_64-apple-darwin/release/vutils
+            alias: target/x86_64-apple-darwin/release/vu
           - name: macos-aarch64
             os: macos-15
             target: aarch64-apple-darwin
             binary: target/aarch64-apple-darwin/release/vutils
+            alias: target/aarch64-apple-darwin/release/vu
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -45,22 +48,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          required_glibc="$(objdump -T "${{ matrix.binary }}" \
-            | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' \
-            | cut -d_ -f2 \
-            | sort -V \
-            | tail -n1)"
-          test -n "$required_glibc"
-          dpkg --compare-versions "$required_glibc" le '2.35'
-          echo "Maximum required glibc version: $required_glibc"
+          for binary in "${{ matrix.binary }}" "${{ matrix.alias }}"; do
+            required_glibc="$(objdump -T "$binary" \
+              | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' \
+              | cut -d_ -f2 \
+              | sort -V \
+              | tail -n1)"
+            test -n "$required_glibc"
+            dpkg --compare-versions "$required_glibc" le '2.35'
+            echo "$binary maximum required glibc version: $required_glibc"
+          done
       - name: Package archive
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist/stage
           cp "${{ matrix.binary }}" dist/stage/vutils
+          cp "${{ matrix.alias }}" dist/stage/vu
           cp README.md LICENSE-MIT LICENSE-APACHE dist/stage/
           cp "${{ matrix.binary }}" "dist/vutils-${{ matrix.name }}"
+          cp "${{ matrix.alias }}" "dist/vu-${{ matrix.name }}"
           tar -C dist/stage -czf "dist/vutils-${{ matrix.name }}.tar.gz" .
           rm -rf dist/stage
       - name: Install Linux package tools

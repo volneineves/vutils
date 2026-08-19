@@ -1,4 +1,5 @@
 mod cli;
+mod key_store;
 mod tui;
 mod vruno;
 
@@ -208,20 +209,21 @@ fn dispatch(command: Command, config: &UserConfig) -> Result<Outcome> {
             }
         },
         Command::Enc(args) => {
-            let password = read_password(args.password, config)?;
+            let key = read_encryption_key(args.key, config)?;
             let algorithm = resolve_encryption_algorithm(args.algorithm, config)?;
-            let encrypted =
-                security::encrypt(&read_bytes(&args.input)?, password.as_ref(), algorithm)?;
+            let encrypted = security::encrypt(&read_bytes(&args.input)?, key.as_ref(), algorithm)?;
+            remember_encryption_key(key.as_ref());
             eprintln!("algorithm: {}", algorithm.name());
             text_out(encrypted, args.input)
         }
         Command::Dec(args) => {
-            let password = read_password(args.password, config)?;
+            let key = read_encryption_key(args.key, config)?;
             let decrypted = security::decrypt(
                 &read_text(&args.input)?,
-                password.as_ref(),
+                key.as_ref(),
                 args.algorithm.map(map_encryption_algorithm),
             )?;
+            remember_encryption_key(key.as_ref());
             eprintln!("algorithm: {}", decrypted.algorithm.name());
             binary_out(decrypted.plaintext, args.input)
         }
@@ -450,6 +452,14 @@ fn dispatch_config(command: ConfigCommand) -> Result<Outcome> {
             config.save()?;
             text_out(effective, InputOptions::default())
         }
+        ConfigCommand::ForgetKey => {
+            let message = if key_store::forget().map_err(VutilsError::Message)? {
+                "saved encryption key removed"
+            } else {
+                "no saved encryption key"
+            };
+            text_out(message.into(), InputOptions::default())
+        }
     }
 }
 
@@ -526,7 +536,7 @@ fn run_vruno(
         })?;
     let openapi = args.openapi.or_else(|| config.vruno_openapi()).ok_or_else(|| {
         VutilsError::InvalidInput(
-            "Vruno OpenAPI file is not configured; run `vutils vruno configure` first or pass --openapi".into(),
+            "Vruno OpenAPI source is not configured; run `vutils vruno configure` first or pass --openapi".into(),
         )
     })?;
     let request = vruno::SyncRequest {
@@ -1035,14 +1045,14 @@ fn read_secret(options: &SecretOptions) -> Result<Vec<u8>> {
     Ok(value)
 }
 
-fn read_password(
-    options: PasswordOptions,
+fn read_encryption_key(
+    options: EncryptionKeyOptions,
     config: &UserConfig,
 ) -> Result<zeroize::Zeroizing<Vec<u8>>> {
-    if let Some(value) = options.passwd {
+    if let Some(value) = options.key {
         return Ok(zeroize::Zeroizing::new(value.into_bytes()));
     }
-    if let Some(path) = options.passwd_file {
+    if let Some(path) = options.key_file {
         let mut value = fs::read(&path).map_err(|source| VutilsError::Read {
             path: path.clone(),
             source,
@@ -1050,8 +1060,8 @@ fn read_password(
         trim_line_ending(&mut value);
         return Ok(zeroize::Zeroizing::new(value));
     }
-    if let Some(name) = options.passwd_env {
-        return read_password_environment(&name);
+    if let Some(name) = options.key_env {
+        return read_key_environment(&name);
     }
     if let Some(path) = config.password_file() {
         let mut value = fs::read(&path).map_err(|source| VutilsError::Read {
@@ -1062,14 +1072,31 @@ fn read_password(
         return Ok(zeroize::Zeroizing::new(value));
     }
     if let Some(name) = config.password_env() {
-        return read_password_environment(name);
+        return read_key_environment(name);
+    }
+    match key_store::load() {
+        Ok(Some(key)) => return Ok(key),
+        Ok(None) => {}
+        Err(error) => {
+            return Err(VutilsError::InvalidInput(format!(
+                "no explicit or configured encryption key was provided, and the saved key is unavailable: {error}; use --key, --key-file, or --key-env"
+            )));
+        }
     }
     Err(VutilsError::InvalidInput(
-        "provide a password using --passwd, --passwd-file, --passwd-env, or configure crypto.password-env/crypto.password-file".into(),
+        "provide an encryption key using --key, --key-file, --key-env (legacy aliases: --passwd, --passwd-file, --passwd-env), configure crypto.password-env/crypto.password-file, or first save a key with a successful enc/dec command".into(),
     ))
 }
 
-fn read_password_environment(name: &str) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+fn remember_encryption_key(key: &[u8]) {
+    if let Err(error) = key_store::remember(key) {
+        eprintln!(
+            "warning: {error}; the command result is still valid, but this key was not remembered"
+        );
+    }
+}
+
+fn read_key_environment(name: &str) -> Result<zeroize::Zeroizing<Vec<u8>>> {
     env::var(name)
         .map(String::into_bytes)
         .map(zeroize::Zeroizing::new)

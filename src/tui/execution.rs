@@ -63,11 +63,10 @@ pub(super) fn spawn(
 }
 
 fn protect_direct_secrets(args: Vec<String>) -> (Vec<String>, Vec<(String, String)>) {
-    const PASSWORD_FLAG: &[(&str, &str, &str)] =
-        &[("--passwd", "--passwd-env", "VUTILS_TUI_PASSWORD")];
+    const KEY_FLAG: &[(&str, &str, &str)] = &[("--key", "--key-env", "VUTILS_TUI_KEY")];
     const SECRET_FLAG: &[(&str, &str, &str)] = &[("--secret", "--secret-env", "VUTILS_TUI_SECRET")];
     let sensitive_flags = match args.first().map(String::as_str) {
-        Some("enc" | "dec") => PASSWORD_FLAG,
+        Some("enc" | "dec") => KEY_FLAG,
         Some("hmac" | "password-hash" | "totp") => SECRET_FLAG,
         _ => return (args, Vec::new()),
     };
@@ -170,14 +169,14 @@ mod tests {
     fn direct_secrets_are_moved_out_of_child_process_arguments() {
         let (args, environment) = protect_direct_secrets(vec![
             "enc".into(),
-            "--passwd".into(),
+            "--key".into(),
             "not-visible-in-argv".into(),
         ]);
 
-        assert_eq!(args, ["enc", "--passwd-env", "VUTILS_TUI_PASSWORD"]);
+        assert_eq!(args, ["enc", "--key-env", "VUTILS_TUI_KEY"]);
         assert_eq!(
             environment,
-            [("VUTILS_TUI_PASSWORD".into(), "not-visible-in-argv".into())]
+            [("VUTILS_TUI_KEY".into(), "not-visible-in-argv".into())]
         );
         assert!(
             !args

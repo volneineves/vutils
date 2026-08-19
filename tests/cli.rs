@@ -1,7 +1,15 @@
 use std::{fs, process::Command};
 
 fn vutils() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_vutils"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_vutils"));
+    command.env("VUTILS_TEST_DISABLE_KEYRING", "1");
+    command
+}
+
+fn vu() -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_vu"));
+    command.env("VUTILS_TEST_DISABLE_KEYRING", "1");
+    command
 }
 
 fn vutils_with_config(path: &std::path::Path) -> Command {
@@ -32,6 +40,22 @@ fn author_flag_prints_package_metadata_without_a_subcommand() {
             .unwrap()
             .contains("a subcommand is required")
     );
+}
+
+#[test]
+fn vu_is_a_first_class_alias_for_the_cli() {
+    let version = vu().arg("--version").output().unwrap();
+    assert!(version.status.success());
+    assert_eq!(
+        String::from_utf8(version.stdout).unwrap(),
+        format!("vu {}\n", env!("CARGO_PKG_VERSION"))
+    );
+
+    let help = vu().arg("--help").output().unwrap();
+    assert!(help.status.success());
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(help.starts_with("Fast, pipeline-friendly developer utilities"));
+    assert!(help.contains("Usage: vu"));
 }
 
 #[test]
@@ -70,6 +94,10 @@ fn vruno_configures_checks_and_syncs_natively() {
         "openapi: 3.1.0\ninfo: { title: API }\npaths:\n  /health:\n    get:\n      summary: Health\n      tags: [System]\n      responses: { '200': { description: OK } }\n",
     )
     .unwrap();
+    // macOS exposes temporary directories through /private/var; compare the
+    // same canonical locations that Vruno persists in its configuration.
+    let collection = fs::canonicalize(collection).unwrap();
+    let openapi = fs::canonicalize(openapi).unwrap();
 
     let configured = vutils_with_config(&config)
         .args([
@@ -208,7 +236,7 @@ fn config_help_documents_every_supported_default() {
     }
     for guidance in [
         "explicit command flag > persisted config > built-in default",
-        "Passwords and passphrases are never stored directly",
+        "Encryption keys are never stored directly",
         "stores only the environment-variable name",
         "automate enc and dec",
         "mutually exclusive",
@@ -735,17 +763,10 @@ fn time_is_local_by_default_and_utc_on_request() {
 }
 
 #[test]
-fn encrypts_and_decrypts_with_password_and_selected_algorithm() {
+fn encrypts_and_decrypts_with_key_and_legacy_passwd_alias() {
     for algorithm in ["aes-256-gcm", "xchacha20-poly1305"] {
         let encrypted = vutils()
-            .args([
-                "enc",
-                "Texto secreto",
-                "--passwd",
-                "123",
-                "--alg",
-                algorithm,
-            ])
+            .args(["enc", "Texto secreto", "--key", "123", "--alg", algorithm])
             .output()
             .unwrap();
         assert!(encrypted.status.success());
@@ -768,7 +789,7 @@ fn encrypts_and_decrypts_with_password_and_selected_algorithm() {
         );
 
         let wrong_password = vutils()
-            .args(["dec", envelope.trim(), "--passwd", "wrong"])
+            .args(["dec", envelope.trim(), "--key", "wrong"])
             .output()
             .unwrap();
         assert!(!wrong_password.status.success());
@@ -781,12 +802,29 @@ fn encrypts_and_decrypts_with_password_and_selected_algorithm() {
 }
 
 #[test]
+fn encryption_and_config_expose_the_saved_key_lifecycle() {
+    let missing = vutils().args(["enc", "message"]).output().unwrap();
+    assert!(!missing.status.success());
+    assert!(
+        String::from_utf8(missing.stderr)
+            .unwrap()
+            .contains("first save a key with a successful enc/dec command")
+    );
+
+    let forgotten = vutils().args(["config", "forget-key"]).output().unwrap();
+    assert!(forgotten.status.success());
+    assert_eq!(forgotten.stdout, b"no saved encryption key\n");
+}
+
+#[test]
 fn encryption_help_lists_reversible_algorithms_and_sha_guidance() {
     let output = vutils().args(["enc", "--help"]).output().unwrap();
     assert!(output.status.success());
     let help = String::from_utf8(output.stdout).unwrap();
     assert!(help.contains("aes-256-gcm"));
     assert!(help.contains("xchacha20-poly1305"));
+    assert!(help.contains("--key <KEY>"));
+    assert!(help.contains("alias: --passwd"));
     assert!(help.contains("SHA algorithms are hashes and are not reversible"));
 }
 

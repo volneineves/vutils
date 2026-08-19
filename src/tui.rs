@@ -88,7 +88,7 @@ fn configured_form(tool: &ToolDef, config: Option<&UserConfig>) -> Vec<FieldStat
                     .password_file()
                     .map_or_else(String::new, |path| path.display().to_string()),
             ),
-            _ => ("direct", String::new()),
+            _ => ("automatic", String::new()),
         };
         replace_form_value(tool, &mut form, "password_source", source);
         if source == "environment" {
@@ -931,8 +931,8 @@ fn handle_parameter_key(app: &mut App, key: KeyEvent) {
 
 fn handle_output_key(app: &mut App, key: KeyEvent) {
     match key.code {
-        KeyCode::Char('h') | KeyCode::Left => app.cycle_focus(true),
-        KeyCode::Char('l') | KeyCode::Right => app.cycle_focus(false),
+        KeyCode::Char('h') => app.cycle_focus(true),
+        KeyCode::Char('l') => app.cycle_focus(false),
         KeyCode::Char('y') => app.copy_output(),
         KeyCode::Char('j') | KeyCode::Down => {
             app.output_scroll = app.output_scroll.saturating_add(1);
@@ -1376,7 +1376,8 @@ fn render_help(frame: &mut Frame, area: Rect) {
     let help = [
         "Navigation",
         "  0 Home · 1-8 categories · [ ] previous/next tab",
-        "  ↑↓/jk operation or field · ←→/hl tab or value",
+        "  ↑↓/jk navigate; ↑↓ scroll Output; ←→ edit Input/value",
+        "  h/l keeps Vim-style tab, value, and panel navigation",
         "  Enter open/edit · Space toggle Yes/No",
         "  Tab / Shift-Tab moves focus between panels",
         "  f add/remove Home · Delete remove · R reset",
@@ -1592,8 +1593,8 @@ mod tests {
             ("UUID version", "v4"),
             ("UUID format", "simple"),
             ("Encryption algorithm", "aes-256-gcm"),
-            ("Password environment", "BACKEND_PASSWORD"),
-            ("Password file", "password.txt"),
+            ("Key environment", "BACKEND_PASSWORD"),
+            ("Key file", "password.txt"),
             ("Home shortcuts", "uuid,json.pretty"),
             ("Vruno collection", "collections/api"),
             ("Vruno OpenAPI", "specs/openapi.yaml"),
@@ -1669,17 +1670,18 @@ mod tests {
     }
 
     #[test]
-    fn encryption_without_a_configured_source_requests_a_masked_password() {
+    fn encryption_without_a_configured_source_uses_the_saved_key_fallback() {
         let directory = tempfile::tempdir().unwrap();
         let config = UserConfig::load_from(directory.path().join("config.toml")).unwrap();
         let mut app = App::from_config(Some(config), None);
         app.select_category(6);
 
-        assert_eq!(app.form[1].value(&app.tool().fields[1]), "direct");
+        assert_eq!(app.form[1].value(&app.tool().fields[1]), "automatic");
         assert_eq!(app.form[2].display(&app.tool().fields[2]), "(not set)");
-        app.start_execution();
-        assert_eq!(app.focus, Focus::Parameters);
-        assert_eq!(app.status, "Password is required");
+        assert_eq!(
+            build_args(app.tool(), &app.form).unwrap(),
+            ["enc", "--alg", "xchacha20-poly1305"]
+        );
     }
 
     #[test]
@@ -1849,6 +1851,8 @@ mod tests {
         let config = UserConfig::load_from(directory.path().join("config.toml")).unwrap();
         let mut app = App::from_config(Some(config), None);
         app.select_category(6);
+        let tool = *app.tool();
+        replace_form_value(&tool, &mut app.form, "password_source", "direct");
         app.focus = Focus::Parameters;
         app.field_selection = 2;
         app.editing_field = true;
@@ -1947,6 +1951,23 @@ mod tests {
         assert_eq!(app.focus, Focus::Input);
         app.focus = Focus::Output;
         press(&mut app, KeyCode::Char('l'));
+        assert_eq!(app.focus, Focus::Operations);
+    }
+
+    #[test]
+    fn output_arrows_scroll_without_changing_panel_focus() {
+        let mut app = app();
+        app.focus = Focus::Output;
+
+        press(&mut app, KeyCode::Down);
+        assert_eq!(app.output_scroll, 1);
+        assert_eq!(app.focus, Focus::Output);
+
+        press(&mut app, KeyCode::Left);
+        press(&mut app, KeyCode::Right);
+        assert_eq!(app.focus, Focus::Output);
+
+        press(&mut app, KeyCode::Tab);
         assert_eq!(app.focus, Focus::Operations);
     }
 

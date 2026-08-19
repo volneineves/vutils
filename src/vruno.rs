@@ -3,6 +3,7 @@ use std::{
     fs,
     io::Write as _,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 use serde::Serialize;
@@ -14,6 +15,8 @@ use walkdir::{DirEntry, WalkDir};
 const HTTP_METHODS: &[&str] = &[
     "get", "put", "post", "delete", "options", "head", "patch", "trace",
 ];
+const MAX_REMOTE_OPENAPI_BYTES: u64 = 10 * 1024 * 1024;
+const REMOTE_OPENAPI_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SyncMode {
@@ -116,7 +119,15 @@ struct Block<'a> {
 }
 
 pub(crate) fn validate_collection(path: &Path) -> Result<PathBuf> {
-    let path = canonicalize(path, "Bruno collection")?;
+    let path = local_file_path(path, "Bruno collection")?;
+    let mut path = canonicalize(&path, "Bruno collection")?;
+    if path.is_file()
+        && path
+            .file_name()
+            .is_some_and(|name| name.eq_ignore_ascii_case("bruno.json"))
+    {
+        path.pop();
+    }
     if !path.is_dir() {
         return Err(VutilsError::InvalidInput(format!(
             "Bruno collection `{}` is not a directory",
@@ -149,36 +160,15 @@ pub(crate) fn validate_collection(path: &Path) -> Result<PathBuf> {
 }
 
 pub(crate) fn validate_openapi(path: &Path) -> Result<PathBuf> {
-    let path = canonicalize(path, "OpenAPI file")?;
-    if !path.is_file() {
-        return Err(VutilsError::InvalidInput(format!(
-            "OpenAPI path `{}` is not a file",
-            path.display()
-        )));
-    }
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(str::to_ascii_lowercase)
-        .ok_or_else(|| {
-            VutilsError::InvalidInput(
-                "OpenAPI file must use a .json, .yaml, or .yml extension".into(),
-            )
-        })?;
-    if !matches!(extension.as_str(), "json" | "yaml" | "yml") {
-        return Err(VutilsError::InvalidInput(
-            "OpenAPI file must use a .json, .yaml, or .yml extension".into(),
-        ));
-    }
-    let document = read_openapi(&path)?;
+    let (path, document) = load_openapi(path)?;
     validate_document(&path, &document)?;
     Ok(path)
 }
 
 pub(crate) fn run(request: &SyncRequest) -> Result<SyncOutput> {
     let collection = validate_collection(&request.collection)?;
-    let openapi = validate_openapi(&request.openapi)?;
-    let document = read_openapi(&openapi)?;
+    let (openapi, document) = load_openapi(&request.openapi)?;
+    validate_document(&openapi, &document)?;
     let endpoints = build_endpoints(&document, request.group_by)?;
     let existing = scan_collection(&collection)?;
     reject_duplicate_requests(&existing)?;
@@ -201,21 +191,120 @@ pub(crate) fn run(request: &SyncRequest) -> Result<SyncOutput> {
     })
 }
 
-fn read_openapi(path: &Path) -> Result<Value> {
-    let contents = fs::read_to_string(path).map_err(|source| VutilsError::Read {
+fn load_openapi(path: &Path) -> Result<(PathBuf, Value)> {
+    if let Some(url) = remote_url(path)? {
+        let format = openapi_format(Path::new(url.path()))?;
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(REMOTE_OPENAPI_TIMEOUT))
+            .user_agent(concat!("vutils/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .into();
+        let mut response = agent.get(url.as_str()).call().map_err(|error| {
+            VutilsError::Message(format!("failed to download OpenAPI URL `{url}`: {error}"))
+        })?;
+        let bytes = response
+            .body_mut()
+            .with_config()
+            .limit(MAX_REMOTE_OPENAPI_BYTES)
+            .read_to_vec()
+            .map_err(|error| {
+                VutilsError::Message(format!("failed to read OpenAPI URL `{url}`: {error}"))
+            })?;
+        let contents = String::from_utf8(bytes).map_err(|error| {
+            VutilsError::InvalidInput(format!(
+                "OpenAPI URL `{url}` did not return valid UTF-8: {error}"
+            ))
+        })?;
+        let location = PathBuf::from(url.as_str());
+        return parse_openapi(&location, &contents, format).map(|document| (location, document));
+    }
+
+    let path = local_file_path(path, "OpenAPI file")?;
+    let path = canonicalize(&path, "OpenAPI file")?;
+    if !path.is_file() {
+        return Err(VutilsError::InvalidInput(format!(
+            "OpenAPI path `{}` is not a file",
+            path.display()
+        )));
+    }
+    let format = openapi_format(&path)?;
+    let contents = fs::read_to_string(&path).map_err(|source| VutilsError::Read {
         path: path.to_path_buf(),
         source,
     })?;
-    match path.extension().and_then(|value| value.to_str()) {
-        Some(extension) if extension.eq_ignore_ascii_case("json") => {
-            serde_json::from_str(&contents).map_err(|error| {
-                VutilsError::InvalidInput(format!(
-                    "invalid OpenAPI JSON `{}`: {error}",
-                    path.display()
-                ))
-            })
-        }
-        _ => serde_yaml_ng::from_str(&contents).map_err(|error| {
+    parse_openapi(&path, &contents, format).map(|document| (path, document))
+}
+
+#[derive(Clone, Copy)]
+enum OpenApiFormat {
+    Json,
+    Yaml,
+}
+
+fn remote_url(path: &Path) -> Result<Option<url::Url>> {
+    let Some(value) = path.to_str() else {
+        return Ok(None);
+    };
+    let Ok(url) = url::Url::parse(value) else {
+        return Ok(None);
+    };
+    match url.scheme() {
+        "http" | "https" => Ok(Some(url)),
+        "file" => Ok(None),
+        scheme if value.contains("://") => Err(VutilsError::Unsupported(format!(
+            "OpenAPI URL scheme `{scheme}` is not supported; use http:// or https://"
+        ))),
+        _ => Ok(None),
+    }
+}
+
+fn local_file_path(path: &Path, label: &str) -> Result<PathBuf> {
+    let Some(value) = path.to_str() else {
+        return Ok(path.to_path_buf());
+    };
+    let Ok(url) = url::Url::parse(value) else {
+        return Ok(path.to_path_buf());
+    };
+    match url.scheme() {
+        "file" => url.to_file_path().map_err(|()| {
+            VutilsError::InvalidInput(format!(
+                "{label} URL `{url}` cannot be converted to a local path"
+            ))
+        }),
+        "http" | "https" => Err(VutilsError::Unsupported(format!(
+            "remote {label} URL `{url}` is not a writable local collection"
+        ))),
+        scheme if value.contains("://") => Err(VutilsError::Unsupported(format!(
+            "{label} URL scheme `{scheme}` is not supported"
+        ))),
+        _ => Ok(path.to_path_buf()),
+    }
+}
+
+fn openapi_format(path: &Path) -> Result<OpenApiFormat> {
+    match path
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("json") => Ok(OpenApiFormat::Json),
+        Some("yaml" | "yml") => Ok(OpenApiFormat::Yaml),
+        _ => Err(VutilsError::InvalidInput(
+            "OpenAPI path or URL must use a .json, .yaml, or .yml extension".into(),
+        )),
+    }
+}
+
+fn parse_openapi(path: &Path, contents: &str, format: OpenApiFormat) -> Result<Value> {
+    match format {
+        OpenApiFormat::Json => serde_json::from_str(contents).map_err(|error| {
+            VutilsError::InvalidInput(format!(
+                "invalid OpenAPI JSON `{}`: {error}",
+                path.display()
+            ))
+        }),
+        OpenApiFormat::Yaml => serde_yaml_ng::from_str(contents).map_err(|error| {
             VutilsError::InvalidInput(format!(
                 "invalid OpenAPI YAML `{}`: {error}",
                 path.display()
@@ -1571,6 +1660,7 @@ fn canonicalize(path: &Path, label: &str) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{io::Read as _, net::TcpListener, thread};
 
     fn fixture() -> (tempfile::TempDir, PathBuf, PathBuf) {
         let directory = tempfile::tempdir().unwrap();
@@ -1625,6 +1715,59 @@ paths:
             json: false,
             group_by: GroupBy::Tags,
         }
+    }
+
+    #[test]
+    fn validates_openapi_from_http_url() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let document = b"openapi: 3.1.0\ninfo: { title: Remote API }\npaths: {}\n";
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 2048];
+            let received = stream.read(&mut request).unwrap();
+            assert!(
+                String::from_utf8_lossy(&request[..received]).starts_with("GET /openapi.yaml ")
+            );
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/yaml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                document.len()
+            )
+            .unwrap();
+            stream.write_all(document).unwrap();
+        });
+        let url = format!("http://{address}/openapi.yaml");
+
+        assert_eq!(
+            validate_openapi(Path::new(&url)).unwrap(),
+            PathBuf::from(&url)
+        );
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn accepts_collection_directory_bruno_json_and_file_url() {
+        let (_directory, collection, _openapi) = fixture();
+        let expected = fs::canonicalize(&collection).unwrap();
+        let config = collection.join("bruno.json");
+        let file_url = url::Url::from_directory_path(&collection).unwrap();
+
+        assert_eq!(validate_collection(&collection).unwrap(), expected);
+        assert_eq!(validate_collection(&config).unwrap(), expected);
+        assert_eq!(
+            validate_collection(Path::new(file_url.as_str())).unwrap(),
+            expected
+        );
+    }
+
+    #[test]
+    fn rejects_remote_collection_url_with_actionable_guidance() {
+        let error = validate_collection(Path::new("https://example.com/bruno.json"))
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("not a writable local collection"));
     }
 
     #[test]

@@ -230,8 +230,7 @@ impl UserConfig {
             .vruno
             .collection
             .as_deref()
-            .map(Path::new)
-            .map(|path| self.resolve_relative_path(path))
+            .map(|value| self.resolve_location(value))
     }
 
     pub fn vruno_openapi(&self) -> Option<PathBuf> {
@@ -239,8 +238,16 @@ impl UserConfig {
             .vruno
             .openapi
             .as_deref()
-            .map(Path::new)
-            .map(|path| self.resolve_relative_path(path))
+            .map(|value| self.resolve_location(value))
+    }
+
+    fn resolve_location(&self, value: &str) -> PathBuf {
+        if url::Url::parse(value).is_ok_and(|url| matches!(url.scheme(), "http" | "https" | "file"))
+        {
+            PathBuf::from(value)
+        } else {
+            self.resolve_relative_path(Path::new(value))
+        }
     }
 
     fn resolve_relative_path(&self, path: &Path) -> PathBuf {
@@ -678,6 +685,23 @@ mod tests {
         );
         loaded.unset("vruno.collection").unwrap();
         assert_eq!(loaded.vruno_collection(), None);
+    }
+
+    #[test]
+    fn vruno_urls_are_preserved_instead_of_resolved_as_relative_paths() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("config.toml");
+        let mut config = UserConfig::load_from(path.clone()).unwrap();
+        config
+            .set("vruno.openapi", "https://example.test/openapi.yaml")
+            .unwrap();
+        config.save().unwrap();
+
+        let loaded = UserConfig::load_from(path).unwrap();
+        assert_eq!(
+            loaded.vruno_openapi(),
+            Some(PathBuf::from("https://example.test/openapi.yaml"))
+        );
     }
 
     #[test]

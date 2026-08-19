@@ -400,7 +400,7 @@ pub(super) fn command_preview(tool: &ToolDef, states: &[FieldState]) -> String {
 }
 
 fn redact_args(args: &[String]) -> Vec<String> {
-    const SECRET_FLAGS: &[&str] = &["--passwd", "--secret"];
+    const SECRET_FLAGS: &[&str] = &["--key", "--passwd", "--secret"];
     let mut redact_next = false;
     args.iter()
         .map(|argument| {
@@ -1253,15 +1253,15 @@ const VRUNO_RUN_FIELDS: &[FieldDef] = &[
     text_def(
         "collection",
         "Collection",
-        "Bruno collection directory; prefilled from configuration",
+        "Local directory, bruno.json path, or file:// URL; prefilled from configuration",
         "",
         false,
         FieldArg::Flag("--collection"),
     ),
     text_def(
         "openapi",
-        "OpenAPI file",
-        "Local OpenAPI file; prefilled from configuration",
+        "OpenAPI source",
+        "Local file or HTTP(S) URL; prefilled from configuration",
         "",
         false,
         FieldArg::Flag("--openapi"),
@@ -1279,7 +1279,7 @@ const VRUNO_CONFIGURE_FIELDS: &[FieldDef] = &[
     FieldDef {
         key: "collection",
         label: "Collection",
-        help: "Directory containing the Bruno collection to update",
+        help: "Local directory, bruno.json path, or file:// URL for the collection to update",
         kind: FieldKind::Text {
             default: ".",
             required: true,
@@ -1289,8 +1289,8 @@ const VRUNO_CONFIGURE_FIELDS: &[FieldDef] = &[
     },
     FieldDef {
         key: "openapi",
-        label: "OpenAPI file",
-        help: "Local OpenAPI 3.x file ending in .json, .yaml, or .yml",
+        label: "OpenAPI source",
+        help: "Local path or HTTP(S) URL ending in .json, .yaml, or .yml",
         kind: FieldKind::Text {
             default: "openapi.yaml",
             required: true,
@@ -1336,15 +1336,15 @@ const VRUNO_SYNC_FIELDS: &[FieldDef] = &[
 const CRYPTO_ALGORITHMS: &[&str] = &["xchacha20-poly1305", "aes-256-gcm"];
 const DECRYPT_ALGORITHMS: &[&str] = &["auto", "xchacha20-poly1305", "aes-256-gcm"];
 const AUTO_VALUE: &[&str] = &["auto"];
-const PASSWORD_SOURCES: &[&str] = &["configured", "direct", "environment", "file"];
+const PASSWORD_SOURCES: &[&str] = &["automatic", "direct", "environment", "file"];
 const PASSWORD_DIRECT: &[&str] = &["direct"];
 const PASSWORD_ENVIRONMENT: &[&str] = &["environment"];
 const PASSWORD_FILE: &[&str] = &["file"];
 const PASSWORD_SOURCE_FIELDS: &[FieldDef] = &[
     FieldDef {
         key: "password_source",
-        label: "Password source",
-        help: "Use configured crypto settings, a masked value, an environment variable, or a file",
+        label: "Key source",
+        help: "Automatic uses configured settings then the last saved key; other choices override it",
         kind: FieldKind::Choice {
             options: PASSWORD_SOURCES,
             default: 0,
@@ -1354,10 +1354,10 @@ const PASSWORD_SOURCE_FIELDS: &[FieldDef] = &[
     },
     FieldDef {
         key: "password",
-        label: "Password",
-        help: "Masked in the form and command preview; never persisted by the TUI",
+        label: "Key",
+        help: "Masked in the form and preview; remembered in the OS credential store after success",
         kind: FieldKind::Secret { required: true },
-        arg: FieldArg::Flag("--passwd"),
+        arg: FieldArg::Flag("--key"),
         condition: Some(Condition {
             field: "password_source",
             values: PASSWORD_DIRECT,
@@ -1371,7 +1371,7 @@ const PASSWORD_SOURCE_FIELDS: &[FieldDef] = &[
             default: "VUTILS_PASSWORD",
             required: true,
         },
-        arg: FieldArg::Flag("--passwd-env"),
+        arg: FieldArg::Flag("--key-env"),
         condition: Some(Condition {
             field: "password_source",
             values: PASSWORD_ENVIRONMENT,
@@ -1379,13 +1379,13 @@ const PASSWORD_SOURCE_FIELDS: &[FieldDef] = &[
     },
     FieldDef {
         key: "password_file",
-        label: "Password file",
-        help: "Local file containing the password",
+        label: "Key file",
+        help: "Local file containing the encryption key",
         kind: FieldKind::Text {
             default: "password.txt",
             required: true,
         },
-        arg: FieldArg::Flag("--passwd-file"),
+        arg: FieldArg::Flag("--key-file"),
         condition: Some(Condition {
             field: "password_source",
             values: PASSWORD_FILE,
@@ -1507,14 +1507,14 @@ const CONFIG_CRYPTO_FIELDS: &[FieldDef] = &[config_choice_field(
 )];
 const CONFIG_PASSWORD_ENV_FIELDS: &[FieldDef] = &[config_text_field(
     "value",
-    "Environment",
-    "Only the variable name is saved; its secret phrase/text automates enc/dec. Clears Password file",
+    "Key environment",
+    "Only the variable name is saved; its value supplies the key. Clears Key file",
     "VUTILS_PASSWORD",
 )];
 const CONFIG_PASSWORD_FILE_FIELDS: &[FieldDef] = &[config_text_field(
     "value",
-    "Password file",
-    "Password file path; setting it clears Password environment",
+    "Key file",
+    "Key file path; setting it clears Key environment",
     "password.txt",
 )];
 const CONFIG_HOME_FIELDS: &[FieldDef] = &[config_text_field(
@@ -1526,13 +1526,13 @@ const CONFIG_HOME_FIELDS: &[FieldDef] = &[config_text_field(
 const CONFIG_VRUNO_COLLECTION_FIELDS: &[FieldDef] = &[config_text_field(
     "value",
     "Collection",
-    "Default Bruno collection directory used by Vruno",
+    "Default local directory, bruno.json path, or file:// URL used by Vruno",
     ".",
 )];
 const CONFIG_VRUNO_OPENAPI_FIELDS: &[FieldDef] = &[config_text_field(
     "value",
-    "OpenAPI file",
-    "Default local OpenAPI JSON or YAML file used by Vruno",
+    "OpenAPI source",
+    "Default local path or HTTP(S) URL used by Vruno",
     "openapi.yaml",
 )];
 const CONFIG_RESET_FIELDS: &[FieldDef] = &[config_choice_field(
@@ -2515,7 +2515,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
     ToolDef {
         category: Category::Security,
         name: "Encrypt",
-        description: "Encrypt input with a guided password source",
+        description: "Encrypt input with a guided key source",
         base: &["enc"],
         fields: ENCRYPT_FIELDS,
         uses_input: true,
@@ -2524,7 +2524,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
     ToolDef {
         category: Category::Security,
         name: "Decrypt",
-        description: "Decrypt an envelope with a guided password source",
+        description: "Decrypt an envelope with a guided key source",
         base: &["dec"],
         fields: DECRYPT_FIELDS,
         uses_input: true,
@@ -3082,7 +3082,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
     ToolDef {
         category: Category::Vruno,
         name: "Configure",
-        description: "Register collection and OpenAPI paths",
+        description: "Register the collection location and OpenAPI source",
         base: &["vruno", "configure"],
         fields: VRUNO_CONFIGURE_FIELDS,
         uses_input: false,
@@ -3180,7 +3180,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         category: Category::Configuration,
-        name: "Password environment",
+        name: "Key environment",
         description: "Set the environment-variable name used to automate enc and dec",
         base: &["config", "set", "crypto.password-env"],
         fields: CONFIG_PASSWORD_ENV_FIELDS,
@@ -3189,8 +3189,8 @@ pub(super) const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         category: Category::Configuration,
-        name: "Password file",
-        description: "Set the password file source",
+        name: "Key file",
+        description: "Set the encryption key file source",
         base: &["config", "set", "crypto.password-file"],
         fields: CONFIG_PASSWORD_FILE_FIELDS,
         uses_input: false,
@@ -3208,7 +3208,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
     ToolDef {
         category: Category::Configuration,
         name: "Vruno collection",
-        description: "Set the default Bruno collection directory",
+        description: "Set the default local Bruno collection location",
         base: &["config", "set", "vruno.collection"],
         fields: CONFIG_VRUNO_COLLECTION_FIELDS,
         uses_input: false,
@@ -3217,7 +3217,7 @@ pub(super) const TOOLS: &[ToolDef] = &[
     ToolDef {
         category: Category::Configuration,
         name: "Vruno OpenAPI",
-        description: "Set the default local OpenAPI file",
+        description: "Set the default OpenAPI path or URL",
         base: &["config", "set", "vruno.openapi"],
         fields: CONFIG_VRUNO_OPENAPI_FIELDS,
         uses_input: false,
@@ -3237,6 +3237,15 @@ pub(super) const TOOLS: &[ToolDef] = &[
         name: "Config path",
         description: "Show the active vutils config file",
         base: &["config", "path"],
+        fields: NO_FIELDS,
+        uses_input: false,
+        sample: None,
+    },
+    ToolDef {
+        category: Category::Configuration,
+        name: "Forget saved key",
+        description: "Remove the last encryption key from the OS credential store",
+        base: &["config", "forget-key"],
         fields: NO_FIELDS,
         uses_input: false,
         sample: None,

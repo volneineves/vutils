@@ -41,18 +41,20 @@ CONFIG KEYS:
     Example: json.pretty, uuid, sql.format, code.types
 
   vruno.collection
-    Value: path to the Bruno collection directory
+    Value: local directory, bruno.json path, or file:// URL for the Bruno collection
     Default: not set
 
   vruno.openapi
-    Value: path to a local OpenAPI 3.x .json, .yaml, or .yml file
+    Value: path or HTTP(S) URL to an OpenAPI 3.x .json, .yaml, or .yml document
     Default: not set
 
-Passwords and passphrases are never stored directly in config.toml. password-env
-stores only the environment-variable name; that variable's secret text is used to
-automate enc and dec. password-env and password-file are mutually exclusive; setting
-either one clears the other. Decryption detects the algorithm stored in the encrypted
-envelope.
+Encryption keys are never stored directly in config.toml. password-env
+stores only the environment-variable name; that variable's value is used to automate
+enc and dec.
+password-env and password-file are mutually exclusive; setting either one clears the
+other. A successfully used key is remembered separately in the operating-system
+credential store and can be removed with `vutils config forget-key`. Decryption detects
+the algorithm stored in the encrypted envelope.
 
 KEY ALIASES:
   sql-dialect, uuid-version, uuid-format, crypto-algorithm
@@ -78,9 +80,9 @@ EXAMPLES:
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "vutils",
+    name = env!("CARGO_BIN_NAME"),
     version,
-    about = "Offline, pipeline-friendly developer utilities"
+    about = "Fast, pipeline-friendly developer utilities"
 )]
 #[command(arg_required_else_help = true)]
 pub struct Cli {
@@ -135,9 +137,9 @@ pub enum Command {
     Html(TextCodecCommand),
     #[command(subcommand, about = "Compress and decompress GZip data")]
     Gzip(GzipCommand),
-    #[command(about = "Encrypt data with a password using authenticated encryption")]
+    #[command(about = "Encrypt data with a key using authenticated encryption")]
     Enc(EncryptionArgs),
-    #[command(about = "Decrypt a vutils encrypted envelope with its password")]
+    #[command(about = "Decrypt a vutils encrypted envelope with its key")]
     Dec(DecryptionArgs),
     #[command(subcommand, about = "Format, query, validate, and convert JSON")]
     Json(JsonCommand),
@@ -255,28 +257,31 @@ pub struct SecretOptions {
 }
 
 #[derive(Debug, Args, Clone, Default)]
-pub struct PasswordOptions {
+pub struct EncryptionKeyOptions {
     #[arg(
-        long,
-        value_name = "PASSWORD",
-        conflicts_with_all = ["passwd_file", "passwd_env"],
-        help = "Password value (may be recorded in shell history)"
+        long = "key",
+        visible_alias = "passwd",
+        value_name = "KEY",
+        conflicts_with_all = ["key_file", "key_env"],
+        help = "Encryption key (may be recorded in shell history)"
     )]
-    pub passwd: Option<String>,
+    pub key: Option<String>,
     #[arg(
-        long,
+        long = "key-file",
+        visible_alias = "passwd-file",
         value_name = "PATH",
-        conflicts_with_all = ["passwd", "passwd_env"],
-        help = "Read the password from a local file"
+        conflicts_with_all = ["key", "key_env"],
+        help = "Read the encryption key from a local file"
     )]
-    pub passwd_file: Option<PathBuf>,
+    pub key_file: Option<PathBuf>,
     #[arg(
-        long,
+        long = "key-env",
+        visible_alias = "passwd-env",
         value_name = "NAME",
-        conflicts_with_all = ["passwd", "passwd_file"],
-        help = "Read the password from an environment variable"
+        conflicts_with_all = ["key", "key_file"],
+        help = "Read the encryption key from an environment variable"
     )]
-    pub passwd_env: Option<String>,
+    pub key_env: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -288,7 +293,7 @@ pub struct EncryptionArgs {
     )]
     pub algorithm: Option<EncryptionAlgorithmArg>,
     #[command(flatten)]
-    pub password: PasswordOptions,
+    pub key: EncryptionKeyOptions,
     #[command(flatten)]
     pub input: InputOptions,
 }
@@ -302,7 +307,7 @@ pub struct DecryptionArgs {
     )]
     pub algorithm: Option<EncryptionAlgorithmArg>,
     #[command(flatten)]
-    pub password: PasswordOptions,
+    pub key: EncryptionKeyOptions,
     #[command(flatten)]
     pub input: InputOptions,
 }
@@ -400,11 +405,13 @@ pub enum ConfigCommand {
     Set { key: String, value: String },
     #[command(about = "Remove a persisted value and restore its built-in default")]
     Unset { key: String },
+    #[command(about = "Remove the last encryption key from the operating-system credential store")]
+    ForgetKey,
 }
 
 #[derive(Debug, Subcommand)]
 pub enum VrunoCommand {
-    #[command(about = "Persist and validate the Bruno collection and OpenAPI paths")]
+    #[command(about = "Persist and validate the Bruno collection and OpenAPI source")]
     Configure(VrunoConfigureArgs),
     #[command(about = "Show the effective Vruno setup")]
     Show,
@@ -418,12 +425,16 @@ pub enum VrunoCommand {
 
 #[derive(Debug, Args)]
 pub struct VrunoConfigureArgs {
-    #[arg(long, value_name = "DIRECTORY", help = "Bruno collection directory")]
+    #[arg(
+        long,
+        value_name = "DIRECTORY_OR_BRUNO_JSON",
+        help = "Local Bruno collection directory, bruno.json path, or file:// URL"
+    )]
     pub collection: PathBuf,
     #[arg(
         long,
-        value_name = "OPENAPI_FILE",
-        help = "Local OpenAPI 3.x JSON or YAML file"
+        value_name = "FILE_OR_URL",
+        help = "Local path or HTTP(S) URL to an OpenAPI 3.x JSON or YAML document"
     )]
     pub openapi: PathBuf,
 }
@@ -432,14 +443,14 @@ pub struct VrunoConfigureArgs {
 pub struct VrunoRunArgs {
     #[arg(
         long,
-        value_name = "DIRECTORY",
-        help = "Override the configured collection"
+        value_name = "DIRECTORY_OR_BRUNO_JSON",
+        help = "Override the configured local collection directory, bruno.json path, or file:// URL"
     )]
     pub collection: Option<PathBuf>,
     #[arg(
         long,
-        value_name = "OPENAPI_FILE",
-        help = "Override the configured OpenAPI file"
+        value_name = "FILE_OR_URL",
+        help = "Override the configured OpenAPI path or HTTP(S) URL"
     )]
     pub openapi: Option<PathBuf>,
     #[arg(long, value_enum, default_value = "tags")]
