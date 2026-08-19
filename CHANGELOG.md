@@ -4,11 +4,17 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-08-19
+
+### Changed
+
+- Updated usage examples and README command snippets to use the `vu` executable alias.
+
 ## [0.7.0] - 2026-08-19
 
 ### Added
 
-- UUID validation through `vutils uuid --validate <uuid>` and the Validators tab, with support for hyphenated, simple, URN, and braced representations.
+- UUID validation through `vu uuid --validate <uuid>` and the Validators tab, with support for hyphenated, simple, URN, and braced representations.
 - `vu` as a complete short executable alias, included in release archives, DEB packages, and RPM packages.
 - Vruno OpenAPI loading from explicit HTTP(S) URLs, with bounded downloads, plus `file://`, collection-directory, and `bruno.json` location support for local Bruno collections.
 - Automatic reuse of the last successfully used encryption key through the native operating-system credential store, with `config forget-key` for explicit removal.

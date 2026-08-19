@@ -12,7 +12,6 @@ Download the artifact for your system from [GitHub Releases](https://github.com/
 curl -fL -o vutils-latest-amd64.deb https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-amd64.deb
 sudo apt install ./vutils-latest-amd64.deb
 rm -f ./vutils-latest-amd64.deb
-vutils --version
 vu --version
 ```
 
@@ -24,7 +23,7 @@ The URL always follows the newest stable GitHub release and ignores prereleases 
 curl -fL -o vutils-latest-x86_64.rpm https://github.com/volneineves/vutils/releases/latest/download/vutils-latest-x86_64.rpm
 sudo dnf install ./vutils-latest-x86_64.rpm
 rm -f ./vutils-latest-x86_64.rpm
-vutils --version
+vu --version
 vu --version
 ```
 
@@ -86,7 +85,7 @@ Linux artifacts are built on Ubuntu 22.04 and both executable names are verified
 Run the full-screen interface in any interactive terminal:
 
 ```bash
-vutils tui
+vu tui
 ```
 
 The TUI opens on a customizable **Home** with the most common backend actions: JSON and SQL formatting, UUID and password generation, and encryption/decryption. Its fixed workflow tabs are **Random**, **Formatters**, **Parsers**, **Validators**, **Codecs**, **Security**, **Vruno**, and **Configuration**. Formatters groups output normalization such as JSON, SQL, cURL, YAML, XML, text, and byte sizes; Parsers groups extraction, conversion, regex inspection, model inference, cron, and time utilities; Validators groups UUID, JSON, JSON Schema, YAML, CSV, TOML, XML, and dotenv validation. Each operation exposes only its relevant parameters, an empty multiline input editor with a dimmed example placeholder when needed, the exact generated CLI command, and an output preview scoped to the selected operation. The Configuration tab provides typed editors for every supported setting, plus an explicit reset action for restoring defaults or clearing optional values. The Random tab keeps one caveat visible in the UUID version help: v3 and v5 are deterministic for the same namespace and name.
@@ -147,30 +146,30 @@ A ready-to-copy version of the spec is available at [`extras/lazyvim/vutils.lua`
 Transformations accept a positional value or existing file path, an explicit `--input <path>`, or stdin. Existing regular files are detected automatically; use `--literal` when text that happens to match a file name must not be read from disk. Output is written to stdout by default.
 
 ```bash
-printf '%s' '{"name":"Volnei"}' | vutils json pretty
-vutils json pretty ./payload.json
-vutils json to-yaml payload.json --output payload.yaml
-vutils --in-place json pretty payload.json
-vutils text trim --literal README.md
-vutils base64 decode 'AAEC' --output bytes.bin
+printf '%s' '{"name":"Volnei"}' | vu json pretty
+vu json pretty ./payload.json
+vu json to-yaml payload.json --output payload.yaml
+vu --in-place json pretty payload.json
+vu text trim --literal README.md
+vu base64 decode 'AAEC' --output bytes.bin
 ```
 
 `--input` remains useful when a missing or unreadable path must produce a filesystem error instead of being treated as literal input. `--in-place` writes a temporary file beside the detected or explicit source and replaces the original only after successful transformation. `--output` refuses to overwrite an existing file unless `--force` is present. `--copy` additionally copies UTF-8 output to the local clipboard.
 
 ## Persistent defaults
 
-Use `vutils config` to avoid repeating the same flags. Explicit command-line flags always win over the config, and built-in defaults remain active for keys that are not configured.
+Use `vu config` to avoid repeating the same flags. Explicit command-line flags always win over the config, and built-in defaults remain active for keys that are not configured.
 
 ```bash
-vutils config path
-vutils config list
-vutils config set sql.dialect postgres
-vutils config set uuid.version v4
-vutils config set uuid.format simple
-vutils config set crypto.algorithm aes-256-gcm
-vutils config set tui.home json.pretty,uuid,sql.format,code.types
-vutils config get sql.dialect
-vutils config unset uuid.format
+vu config path
+vu config list
+vu config set sql.dialect postgres
+vu config set uuid.version v4
+vu config set uuid.format simple
+vu config set crypto.algorithm aes-256-gcm
+vu config set tui.home json.pretty,uuid,sql.format,code.types
+vu config get sql.dialect
+vu config unset uuid.format
 ```
 
 | Key | Accepted values | Built-in default |
@@ -185,7 +184,7 @@ vutils config unset uuid.format
 | `vruno.collection` | Local Bruno collection directory, `bruno.json` path, or `file://` URL | not set |
 | `vruno.openapi` | Local path, `file://` URL, or HTTP(S) URL to an OpenAPI 3.x JSON/YAML document | not set |
 
-Relative Vruno paths are resolved from the directory containing `config.toml`. `vutils vruno configure` validates local paths and stores the effective locations atomically; URLs are retained as URLs.
+Relative Vruno paths are resolved from the directory containing `config.toml`. `vu vruno configure` validates local paths and stores the effective locations atomically; URLs are retained as URLs.
 
 ### Vruno: Bruno OpenAPI sync
 
@@ -194,19 +193,19 @@ Vruno implements OpenAPI drift detection and Bruno collection synchronization di
 Configure an OpenAPI 3.x `.json`, `.yaml`, or `.yml` source and its local target collection. The collection accepts its directory, its `bruno.json`, or a `file://` URL; the OpenAPI source additionally accepts HTTP(S):
 
 ```bash
-vutils vruno configure \
+vu vruno configure \
   --collection file:///path/to/bruno-collection/ \
   --openapi https://example.com/openapi.yaml
-vutils vruno show
+vu vruno show
 ```
 
 Use the read-only checks before applying changes:
 
 ```bash
-vutils vruno check                  # reports drift; drift returns a non-zero status
-vutils vruno preview                # native dry-run; writes nothing
-vutils vruno sync --yes             # creates and updates collection requests
-vutils vruno check --format json --group-by path
+vu vruno check                  # reports drift; drift returns a non-zero status
+vu vruno preview                # native dry-run; writes nothing
+vu vruno sync --yes             # creates and updates collection requests
+vu vruno check --format json --group-by path
 ```
 
 `sync` requires `--yes`. Stale requests are reported but never deleted, so removing local collection data always remains an explicit manual decision. HTTP(S) collection URLs are rejected because synchronization needs a writable local directory containing multiple files. Remote OpenAPI downloads have a 30-second total timeout and a 10 MiB response limit; the URL path must end in `.json`, `.yaml`, or `.yml`. The native engine currently supports classic Bruno collections (`bruno.json` with `.bru` request files) and bundled OpenAPI documents with internal `$ref` pointers. It refuses `opencollection.yml` and external `$ref` files instead of risking a lossy partial conversion. The same Configure, Show setup, Check drift, Preview sync, and Sync collection operations are available under TUI tab `7`.
@@ -217,18 +216,18 @@ Keys are never stored directly in `config.toml`. Configure a reusable source whe
 # The variable value is a reusable secret passphrase/text, not a login password.
 export VUTILS_PASSWORD='my-encryption-passphrase'
 # vutils persists only the variable name "VUTILS_PASSWORD".
-vutils config set crypto.password-env VUTILS_PASSWORD
-ENCRYPTED="$(vutils enc 'Texto secreto')"  # reads VUTILS_PASSWORD
-vutils dec "$ENCRYPTED"                    # reads VUTILS_PASSWORD
+vu config set crypto.password-env VUTILS_PASSWORD
+ENCRYPTED="$(vu enc 'Texto secreto')"  # reads VUTILS_PASSWORD
+vu dec "$ENCRYPTED"                    # reads VUTILS_PASSWORD
 ```
 
-`crypto.password-env` is therefore an automation pointer, not the secret itself: the configuration saves only an environment-variable name, while that variable's value supplies the key used by `enc` and `dec`. Setting `crypto.password-env` clears `crypto.password-file` and vice versa. A relative key-file path is resolved from the config directory. Every successful `enc` or `dec` also replaces the last key in the operating-system credential store, so later commands can omit all key options; explicit `--key*` options take precedence, followed by the configured environment/file source and then the saved key. Remove that saved credential with `vutils config forget-key`. If the native credential store is unavailable, an explicit key still completes the operation and vutils prints a warning that it could not remember it. `dec` detects the algorithm recorded in each envelope; `crypto.algorithm` selects the default for new `enc` output, while an explicit `--alg` overrides it.
+`crypto.password-env` is therefore an automation pointer, not the secret itself: the configuration saves only an environment-variable name, while that variable's value supplies the key used by `enc` and `dec`. Setting `crypto.password-env` clears `crypto.password-file` and vice versa. A relative key-file path is resolved from the config directory. Every successful `enc` or `dec` also replaces the last key in the operating-system credential store, so later commands can omit all key options; explicit `--key*` options take precedence, followed by the configured environment/file source and then the saved key. Remove that saved credential with `vu config forget-key`. If the native credential store is unavailable, an explicit key still completes the operation and `vu` prints a warning that it could not remember it. `dec` detects the algorithm recorded in each envelope; `crypto.algorithm` selects the default for new `enc` output, while an explicit `--alg` overrides it.
 
 The default config locations are `$XDG_CONFIG_HOME/vutils/config.toml` (or `~/.config/vutils/config.toml`) on Linux and `~/Library/Application Support/vutils/config.toml` on macOS. Set `VUTILS_CONFIG` to use a different file, which is also useful for isolated project profiles.
 
 ## Complete command reference
 
-Except for an explicit Vruno HTTP(S) OpenAPI source, commands operate on local input. The tables describe every command; use `vutils <command> --help` or `vutils help <command>` to see all flags, accepted values, defaults, and input modes.
+Except for an explicit Vruno HTTP(S) OpenAPI source, commands operate on local input. The tables describe every command; use `vu <command> --help` or `vu help <command>` to see all flags, accepted values, defaults, and input modes.
 
 ### Identifiers, fixtures, and validation
 
@@ -281,13 +280,13 @@ Except for an explicit Vruno HTTP(S) OpenAPI source, commands operate on local i
 Convert text or source code to bits and decode it back to stdout:
 
 ```bash
-vutils binary encode 'A'                         # 01000001
-vutils binary encode --spaced 'let x = 1;'
-vutils binary decode '01000001'                  # writes A to stdout
+vu binary encode 'A'                         # 01000001
+vu binary encode --spaced 'let x = 1;'
+vu binary decode '01000001'                  # writes A to stdout
 
-BITS="$(vutils bin encode 'fn main() {}')"
-vutils bin decode "$BITS"                        # writes fn main() {} to stdout
-vutils bin decode "$BITS" --output restored.rs  # writes the original bytes to a file
+BITS="$(vu bin encode 'fn main() {}')"
+vu bin decode "$BITS"                        # writes fn main() {} to stdout
+vu bin decode "$BITS" --output restored.rs  # writes the original bytes to a file
 ```
 
 `binary decode` ignores spaces, line breaks, tabs, and `_`, but rejects any other character and requires complete 8-bit bytes. Its stdout is raw decoded data, so text appears directly while arbitrary bytes can be redirected or saved with `--output`.
@@ -296,20 +295,20 @@ Files and arbitrary binary data are preserved byte for byte. Use `--output` when
 
 ```bash
 # Base64 text -> binary -> Base64 text
-vutils base64 decode 'AAEC/w==' --output payload.bin
-vutils base64 encode --input payload.bin
+vu base64 decode 'AAEC/w==' --output payload.bin
+vu base64 encode --input payload.bin
 
 # Hex text -> binary -> hex text
-vutils hex decode '000102ff' --output payload-from-hex.bin
-vutils hex encode --input payload-from-hex.bin
+vu hex decode '000102ff' --output payload-from-hex.bin
+vu hex encode --input payload-from-hex.bin
 
 # Binary compression and decompression
-vutils gzip compress --input payload.bin --output payload.bin.gz
-vutils gzip decompress --input payload.bin.gz --output payload-restored.bin
+vu gzip compress --input payload.bin --output payload.bin.gz
+vu gzip decompress --input payload.bin.gz --output payload-restored.bin
 
 # Binary encryption and authenticated decryption
-vutils enc --input payload.bin --key-env VUTILS_PASSWORD --output payload.vutils
-vutils dec --input payload.vutils --key-env VUTILS_PASSWORD --output payload-decrypted.bin
+vu enc --input payload.bin --key-env VUTILS_PASSWORD --output payload.vutils
+vu dec --input payload.vutils --key-env VUTILS_PASSWORD --output payload-decrypted.bin
 cmp payload.bin payload-decrypted.bin
 ```
 
@@ -381,12 +380,12 @@ Without `--output`, decoded binary bytes are written directly to stdout and can 
 ## UUIDs
 
 ```bash
-vutils uuid                         # v7 by default
-vutils uuid --version v4 --count 5
-vutils uuid --version v5 --namespace url --name https://example.com
-vutils uuid --version v2 --domain person --local-id 1000
-vutils uuid --version v8 --custom-bytes 00112233445566778899aabbccddeeff
-vutils uuid --validate 018f1f4e-7b2c-7abc-8def-0123456789ab
+vu uuid                         # v7 by default
+vu uuid --version v4 --count 5
+vu uuid --version v5 --namespace url --name https://example.com
+vu uuid --version v2 --domain person --local-id 1000
+vu uuid --version v8 --custom-bytes 00112233445566778899aabbccddeeff
+vu uuid --validate 018f1f4e-7b2c-7abc-8def-0123456789ab
 ```
 
 | Version | What it contains | Typical use and caveats |
@@ -409,14 +408,14 @@ For v3/v5, pass `--namespace dns|url|oid|x500|<uuid>` and `--name <value>`. For 
 Country-specific data is grouped under its country code so other countries can be added without mixing national rules into generic generators. Running `br` without a subcommand produces one complete JSON profile:
 
 ```bash
-vutils br
-vutils br --help
-vutils br cpf --count 5 --formatted
-vutils br cpf --validate '529.982.247-25'
-vutils br cnpj --validate '11.222.333/0001-81'
-vutils br cep --formatted
-vutils br phone --count 3
-vutils br pix --kind phone
+vu br
+vu br --help
+vu br cpf --count 5 --formatted
+vu br cpf --validate '529.982.247-25'
+vu br cnpj --validate '11.222.333/0001-81'
+vu br cep --formatted
+vu br phone --count 3
+vu br pix --kind phone
 ```
 
 CPF and CNPJ validation checks syntax/check digits only; it does not query Receita Federal or establish that a document was issued. CEP, phone, PIX, and document generation is synthetic test data.
@@ -424,13 +423,13 @@ CPF and CNPJ validation checks syntax/check digits only; it does not query Recei
 ## JSON, YAML, CSV, TOML, and XML
 
 ```bash
-vutils json sort-keys '{"z":1,"a":2}'
-vutils json path '$.users[0].name' --input response.json
-vutils json schema-validate --schema schema.json --input value.json
-vutils json to-csv --input rows.json
-vutils yaml to-json --input config.yaml
-vutils toml pretty --input Cargo.toml
-vutils xml validate --input document.xml
+vu json sort-keys '{"z":1,"a":2}'
+vu json path '$.users[0].name' --input response.json
+vu json schema-validate --schema schema.json --input value.json
+vu json to-csv --input rows.json
+vu yaml to-json --input config.yaml
+vu toml pretty --input Cargo.toml
+vu xml validate --input document.xml
 ```
 
 YAML, XML, and dotenv formatting is semantic and may not preserve comments or original styling. YAML-to-JSON accepts one JSON-compatible document. JSON-to-CSV expects flat objects unless `--stringify-nested` is specified.
@@ -438,8 +437,8 @@ YAML, XML, and dotenv formatting is semantic and may not preserve comments or or
 ## Local code generation
 
 ```bash
-vutils code types --lang rust --name User '{"id":1,"name":"Volnei"}'
-vutils code types --lang kotlin --name ApiResponse --input response.json
+vu code types --lang rust --name User '{"id":1,"name":"Volnei"}'
+vu code types --lang kotlin --name ApiResponse --input response.json
 ```
 
 Generated types are inferred from examples, not schemas. Missing fields become optional; ambiguous values use the target language's safe dynamic type.
@@ -447,12 +446,12 @@ Generated types are inferred from examples, not schemas. Missing fields become o
 ## Text case conversion
 
 ```bash
-vutils text case camel 'customer account'       # customerAccount
-vutils text case pascal 'customer account'      # CustomerAccount
-vutils text case snake 'customerAccount'        # customer_account
-vutils text case kebab 'customerAccount'        # customer-account
-vutils text case constant 'customer account'    # CUSTOMER_ACCOUNT
-vutils text case title 'customer account'       # Customer Account
+vu text case camel 'customer account'       # customerAccount
+vu text case pascal 'customer account'      # CustomerAccount
+vu text case snake 'customerAccount'        # customer_account
+vu text case kebab 'customerAccount'        # customer-account
+vu text case constant 'customer account'    # CUSTOMER_ACCOUNT
+vu text case title 'customer account'       # Customer Account
 ```
 
 Aliases matching code spelling are accepted directly, including `camelCase`, `PascalCase`, `snake_case`, `kebabCase`, `CONSTANT_CASE`, and `TitleCase`. Descriptive forms such as `camel-case`, `camelcase`, `pascal-case`, `pascalcase`, `snake-case`, and `snakecase` also work.
@@ -462,9 +461,9 @@ Aliases matching code spelling are accepted directly, including `camelCase`, `Pa
 The formatter accepts one static POSIX cURL command, normalizes flags and quoting, and prints the result. It never sends a request or invokes a shell.
 
 ```bash
-vutils curl format "curl -XPOST -H 'Accept: application/json' https://example.com"
-vutils curl format --input request.curl
-vutils curl format --shell powershell --input request.curl
+vu curl format "curl -XPOST -H 'Accept: application/json' https://example.com"
+vu curl format --input request.curl
+vu curl format --shell powershell --input request.curl
 ```
 
 Operators, substitutions, redirections, unsupported flags, and non-HTTP URLs are rejected.
@@ -474,10 +473,10 @@ Operators, substitutions, redirections, unsupported flags, and non-HTTP URLs are
 No database connection is made.
 
 ```bash
-vutils sql format --dialect postgres 'select id,name from users where id=$1'
-vutils sql format --dialect mysql --keyword-case lower --indent 4 --input query.sql
-vutils config set sql.dialect postgres
-vutils sql format 'select id,name from users where id=$1'
+vu sql format --dialect postgres 'select id,name from users where id=$1'
+vu sql format --dialect mysql --keyword-case lower --indent 4 --input query.sql
+vu config set sql.dialect postgres
+vu sql format 'select id,name from users where id=$1'
 ```
 
 Supported dialects are `generic`, `postgres`, `mysql`, `sqlite`, and `mssql`. Formatting validates the SQL syntax locally before producing output.
@@ -487,23 +486,23 @@ Supported dialects are `generic`, `postgres`, `mysql`, `sqlite`, and `mssql`. Fo
 `enc` encrypts arbitrary text or binary input; `dec` authenticates the envelope before returning the original bytes. XChaCha20-Poly1305 is the default:
 
 ```bash
-vutils enc "Texto secreto" --key 123
+vu enc "Texto secreto" --key 123
 export VUTILS_PASSWORD='use-a-strong-password'
-ENCRYPTED="$(vutils enc 'Texto secreto' --key-env VUTILS_PASSWORD)"
-vutils dec "$ENCRYPTED" --key-env VUTILS_PASSWORD
-vutils enc --input secret.bin --key-file password.txt --output secret.vutils
-vutils dec --input secret.vutils --key-file password.txt --output secret.bin
+ENCRYPTED="$(vu enc 'Texto secreto' --key-env VUTILS_PASSWORD)"
+vu dec "$ENCRYPTED" --key-env VUTILS_PASSWORD
+vu enc --input secret.bin --key-file password.txt --output secret.vutils
+vu dec --input secret.vutils --key-file password.txt --output secret.bin
 # The last successfully used key can now be omitted.
-vutils enc "Outro texto"
-vutils config forget-key
+vu enc "Outro texto"
+vu config forget-key
 ```
 
 Select or inspect algorithms with:
 
 ```bash
-vutils enc --help
-vutils enc "Texto secreto" --key 123 --alg xchacha20-poly1305
-vutils dec "$ENCRYPTED" --key-env VUTILS_PASSWORD --alg aes-256-gcm
+vu enc --help
+vu enc "Texto secreto" --key 123 --alg xchacha20-poly1305
+vu dec "$ENCRYPTED" --key-env VUTILS_PASSWORD --alg aes-256-gcm
 ```
 
 | Algorithm | Notes |
@@ -513,16 +512,16 @@ vutils dec "$ENCRYPTED" --key-env VUTILS_PASSWORD --alg aes-256-gcm
 
 The `vutils:v1` envelope records the algorithm, KDF, random salt, random nonce, and authenticated ciphertext in URL-safe Base64. The key-derived encryption key uses the RFC 9106 memory-constrained profile for Argon2id v1.3 (`m=65536 KiB`, `t=3`, `p=4`, 128-bit salt, 256-bit key), fixed for envelope v1 so future library-default changes cannot break existing data. Decryption rejects a wrong key, altered data, unsupported versions, and an optional mismatched `--alg`. Successful `enc` and `dec` commands print `algorithm: <name>` to stderr while stdout remains the unmodified result channel for pipes and binary files.
 
-SHA-256 and SHA-512 are deliberately not accepted by `--alg`: SHA is one-way hashing and cannot support `dec`. Use `vutils hash sha256` or `vutils hash sha512` when a digest is the intended result.
+SHA-256 and SHA-512 are deliberately not accepted by `--alg`: SHA is one-way hashing and cannot support `dec`. Use `vu hash sha256` or `vu hash sha512` when a digest is the intended result.
 
 ## Secrets
 
 Encryption prefers `--key-file` or `--key-env`. The former `--passwd`, `--passwd-file`, and `--passwd-env` spellings remain visible aliases for backward compatibility. HMAC, TOTP, and password hashing prefer stdin, `--secret-file`, or `--secret-env`. Direct `--key` and `--secret` values are convenient but may be visible in shell history and process listings.
 
 ```bash
-printf '%s' 'password' | vutils password-hash argon2-hash
-vutils hmac --secret-env API_SECRET --input payload.bin
-vutils totp code --secret-file totp.secret
+printf '%s' 'password' | vu password-hash argon2-hash
+vu hmac --secret-env API_SECRET --input payload.bin
+vu totp code --secret-file totp.secret
 ```
 
 JWT decoding never verifies a signature and emits a warning on stderr.
@@ -532,14 +531,14 @@ JWT decoding never verifies a signature and emits a warning on stderr.
 Formatted dates use the machine's local timezone by default. Pass `--utc` when UTC output is required. Unix timestamps are timezone-independent.
 
 ```bash
-vutils time now
-vutils time now --utc
-vutils time now --unix
-vutils time now --unix --unit milliseconds
-vutils time to-iso 1700000000
-vutils time to-iso 1700000000 --utc
-vutils cron next '0 0 9 * * MON-FRI *'
-vutils cron next '0 0 9 * * MON-FRI *' --utc
+vu time now
+vu time now --utc
+vu time now --unix
+vu time now --unix --unit milliseconds
+vu time to-iso 1700000000
+vu time to-iso 1700000000 --utc
+vu cron next '0 0 9 * * MON-FRI *'
+vu cron next '0 0 9 * * MON-FRI *' --utc
 ```
 
 ## Exit codes

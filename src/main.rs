@@ -531,12 +531,12 @@ fn run_vruno(
         .or_else(|| config.vruno_collection())
         .ok_or_else(|| {
             VutilsError::InvalidInput(
-                "Vruno collection is not configured; run `vutils vruno configure` first or pass --collection".into(),
+                "Vruno collection is not configured; run `vu vruno configure` first or pass --collection".into(),
             )
         })?;
     let openapi = args.openapi.or_else(|| config.vruno_openapi()).ok_or_else(|| {
         VutilsError::InvalidInput(
-            "Vruno OpenAPI source is not configured; run `vutils vruno configure` first or pass --openapi".into(),
+            "Vruno OpenAPI source is not configured; run `vu vruno configure` first or pass --openapi".into(),
         )
     })?;
     let request = vruno::SyncRequest {

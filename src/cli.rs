@@ -53,7 +53,7 @@ stores only the environment-variable name; that variable's value is used to auto
 enc and dec.
 password-env and password-file are mutually exclusive; setting either one clears the
 other. A successfully used key is remembered separately in the operating-system
-credential store and can be removed with `vutils config forget-key`. Decryption detects
+credential store and can be removed with `vu config forget-key`. Decryption detects
 the algorithm stored in the encrypted envelope.
 
 KEY ALIASES:
@@ -68,15 +68,15 @@ CONFIG LOCATION:
   Relative Vruno paths use the config file directory
 
 EXAMPLES:
-  vutils config path
-  vutils config list
-  vutils config get sql.dialect
-  vutils config set sql.dialect postgres
-  vutils config set uuid.version v4
-  vutils config set tui.home json.pretty,uuid,sql.format
-  vutils vruno configure --collection ./api --openapi ./openapi.yaml
-  vutils config set crypto.password-env VUTILS_PASSWORD
-  vutils config unset uuid.version"#;
+  vu config path
+  vu config list
+  vu config get sql.dialect
+  vu config set sql.dialect postgres
+  vu config set uuid.version v4
+  vu config set tui.home json.pretty,uuid,sql.format
+  vu vruno configure --collection ./api --openapi ./openapi.yaml
+  vu config set crypto.password-env VUTILS_PASSWORD
+  vu config unset uuid.version"#;
 
 #[derive(Debug, Parser)]
 #[command(

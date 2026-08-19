@@ -241,7 +241,7 @@ fn config_help_documents_every_supported_default() {
         "automate enc and dec",
         "mutually exclusive",
         "VUTILS_CONFIG",
-        "vutils config set",
+        "vu config set",
     ] {
         assert!(
             help.contains(guidance),
