@@ -538,6 +538,49 @@ fn fixed_node_uuid_v2_batch_is_unique_and_bounded() {
 }
 
 #[test]
+fn uuid_validator_accepts_supported_formats_and_rejects_invalid_input() {
+    for value in [
+        "018f1f4e-7b2c-7abc-8def-0123456789ab",
+        "018f1f4e7b2c7abc8def0123456789ab",
+        "urn:uuid:018f1f4e-7b2c-7abc-8def-0123456789ab",
+        "{018f1f4e-7b2c-7abc-8def-0123456789ab}",
+    ] {
+        let output = vutils()
+            .args(["uuid", "--validate", value])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "expected {value} to be valid");
+        assert_eq!(output.stdout, b"valid\n");
+        assert!(output.stderr.is_empty());
+    }
+
+    let invalid = vutils()
+        .args(["uuid", "--validate", "018f1f4e-7b2c-7abc-8def-0123456789ag"])
+        .output()
+        .unwrap();
+    assert!(!invalid.status.success());
+    assert_eq!(invalid.stdout, b"invalid\n");
+    assert!(invalid.stderr.is_empty());
+
+    let conflicting = vutils()
+        .args([
+            "uuid",
+            "--validate",
+            "018f1f4e-7b2c-7abc-8def-0123456789ab",
+            "--version",
+            "v7",
+        ])
+        .output()
+        .unwrap();
+    assert!(!conflicting.status.success());
+    assert!(
+        String::from_utf8(conflicting.stderr)
+            .unwrap()
+            .contains("cannot be used with")
+    );
+}
+
+#[test]
 fn jwt_decode_warns_that_signature_is_unverified() {
     let output = vutils()
         .args(["jwt", "decode", "eyJhbGciOiJub25lIn0.eyJzdWIiOiIxIn0."])

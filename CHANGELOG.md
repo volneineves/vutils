@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-08-19
+
+### Added
+
+- UUID validation through `vutils uuid --validate <uuid>` and the Validators tab, with support for hyphenated, simple, URN, and braced representations.
+
+### Changed
+
+- Linux release artifacts and CI are built on Ubuntu 22.04, with an automated gate that prevents binaries from requiring a glibc version newer than 2.35.
+
 ## [0.6.0] - 2026-08-16
 
 ### Added

@@ -723,6 +723,14 @@ const UUID_VERSIONS: &[&str] = &["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"]
 const UUID_FORMATS: &[&str] = &["hyphenated", "simple", "urn", "braced"];
 const UUID_NAMESPACES: &[&str] = &["dns", "url", "oid", "x500"];
 const UUID_DOMAINS: &[&str] = &["person", "group", "organization"];
+const UUID_VALIDATE_FIELDS: &[FieldDef] = &[text_def(
+    "value",
+    "UUID",
+    "UUID in hyphenated, simple, URN, or braced representation",
+    "018f1f4e-7b2c-7abc-8def-0123456789ab",
+    true,
+    FieldArg::Positional,
+)];
 const UUID_FIELDS: &[FieldDef] = &[
     FieldDef {
         key: "version",
@@ -2125,6 +2133,15 @@ pub(super) const TOOLS: &[ToolDef] = &[
         fields: NO_FIELDS,
         uses_input: true,
         sample: Some(r#"{"name":"Volnei"}"#),
+    },
+    ToolDef {
+        category: Category::Validators,
+        name: "Validate UUID",
+        description: "Validate a UUID representation",
+        base: &["uuid", "--validate"],
+        fields: UUID_VALIDATE_FIELDS,
+        uses_input: false,
+        sample: None,
     },
     ToolDef {
         category: Category::Formatters,
@@ -3548,6 +3565,7 @@ mod tests {
             assert_eq!(tool(name).category, Category::Parsers, "{name}");
         }
         for name in [
+            "Validate UUID",
             "Validate JSON",
             "Validate JSON Schema",
             "Validate YAML",
@@ -3582,6 +3600,7 @@ mod tests {
             validators,
             [
                 "json.validate",
+                "uuid.--validate",
                 "json.schema-validate",
                 "yaml.validate",
                 "csv.validate",

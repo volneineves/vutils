@@ -72,7 +72,7 @@ For an asset downloaded manually into the current directory, stream the checksum
 curl -fsSL https://github.com/volneineves/vutils/releases/latest/download/SHA256SUMS | sha256sum -c - --ignore-missing
 ```
 
-Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust, Cargo, or a network connection.
+Linux artifacts are built on Ubuntu 22.04 and verified not to require a glibc version newer than 2.35, so they run on Ubuntu 22.04 and newer compatible distributions. Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust, Cargo, or a network connection.
 
 Use `vutils --version`, `vutils --author`, or `vutils --help` to inspect the installed CLI metadata.
 
@@ -84,7 +84,7 @@ Run the full-screen interface in any interactive terminal:
 vutils tui
 ```
 
-The TUI opens on a customizable **Home** with the most common backend actions: JSON and SQL formatting, UUID and password generation, and encryption/decryption. Its fixed workflow tabs are **Random**, **Formatters**, **Parsers**, **Validators**, **Codecs**, **Security**, **Vruno**, and **Configuration**. Formatters groups output normalization such as JSON, SQL, cURL, YAML, XML, text, and byte sizes; Parsers groups extraction, conversion, regex inspection, model inference, cron, and time utilities; Validators groups JSON, JSON Schema, YAML, CSV, TOML, XML, and dotenv validation. Each operation exposes only its relevant parameters, an empty multiline input editor with a dimmed example placeholder when needed, the exact generated CLI command, and an output preview scoped to the selected operation. The Configuration tab provides typed editors for every supported setting, plus an explicit reset action for restoring defaults or clearing optional values. The Random tab keeps one caveat visible in the UUID version help: v3 and v5 are deterministic for the same namespace and name.
+The TUI opens on a customizable **Home** with the most common backend actions: JSON and SQL formatting, UUID and password generation, and encryption/decryption. Its fixed workflow tabs are **Random**, **Formatters**, **Parsers**, **Validators**, **Codecs**, **Security**, **Vruno**, and **Configuration**. Formatters groups output normalization such as JSON, SQL, cURL, YAML, XML, text, and byte sizes; Parsers groups extraction, conversion, regex inspection, model inference, cron, and time utilities; Validators groups UUID, JSON, JSON Schema, YAML, CSV, TOML, XML, and dotenv validation. Each operation exposes only its relevant parameters, an empty multiline input editor with a dimmed example placeholder when needed, the exact generated CLI command, and an output preview scoped to the selected operation. The Configuration tab provides typed editors for every supported setting, plus an explicit reset action for restoring defaults or clearing optional values. The Random tab keeps one caveat visible in the UUID version help: v3 and v5 are deterministic for the same namespace and name.
 
 Use `0` to return Home; `1` opens Random, `2` Formatters, `3` Parsers, `4` Validators, `5` Codecs, `6` Security, `7` Vruno, and `8` Configuration. `[`/`]` or `h`/`l` from the operations panel also change tabs. Navigate operations and fields with `j`/`k` or the arrow keys; `h`/`l` changes choices and numeric values in the parameter panel. Choice fields—such as UUID v1 through v8—change with left/right; `Space` toggles options such as password special characters; `Enter` edits text and numeric values such as password length. Run with `Ctrl-R` or `F5`; `q` opens a safe quit confirmation (defaulting to **No**), while explicit `:q`, `:qa`, `:qall`, or `Ctrl-C` close directly; press `?` for the complete shortcut reference. Vim keys remain ordinary text while editing Input or a field.
 
@@ -229,7 +229,7 @@ Every command runs locally. The tables describe the purpose of every command; us
 
 | Command | Purpose |
 | --- | --- |
-| `uuid` | Generate UUID v1 through v8 in hyphenated, simple, URN, or braced format. Defaults to v7. |
+| `uuid` | Generate UUID v1 through v8 or validate hyphenated, simple, URN, and braced UUID representations. Generation defaults to v7. |
 | `id ulid` | Generate lexicographically sortable ULIDs. |
 | `id nanoid` | Generate compact random NanoIDs with configurable length. |
 | `id objectid` | Generate MongoDB-style 24-character ObjectId fixtures. |
@@ -381,6 +381,7 @@ vutils uuid --version v4 --count 5
 vutils uuid --version v5 --namespace url --name https://example.com
 vutils uuid --version v2 --domain person --local-id 1000
 vutils uuid --version v8 --custom-bytes 00112233445566778899aabbccddeeff
+vutils uuid --validate 018f1f4e-7b2c-7abc-8def-0123456789ab
 ```
 
 | Version | What it contains | Typical use and caveats |
@@ -393,6 +394,8 @@ vutils uuid --version v8 --custom-bytes 00112233445566778899aabbccddeeff
 | UUID v6 | Reordered v1 timestamp plus clock/node fields. | Time-sortable replacement for v1 while retaining its node/time characteristics. |
 | UUID v7 | Unix epoch milliseconds plus random bits. | Default and recommended for most new database/application IDs: naturally sortable with no MAC address. |
 | UUID v8 | Application-defined 128-bit layout with version/variant bits normalized. | Controlled interoperability or test fixtures. Semantics and uniqueness are the application's responsibility. |
+
+Validation accepts the hyphenated, simple, URN, and braced representations generated by vutils. It prints `valid` and exits with code 0 for a valid UUID, or prints `invalid` and exits with code 1 otherwise. Validation is syntactic and does not establish that an identifier was issued or is unique.
 
 For v3/v5, pass `--namespace dns|url|oid|x500|<uuid>` and `--name <value>`. For v1/v2/v6, `--node-id` accepts 12 hexadecimal digits; omitting it avoids embedding a real MAC address. UUID v2 is a best-effort fixture because `vutils` has no DCE registry that can guarantee globally assigned local IDs. With a fixed node ID, one v2 batch is limited to 64 values. UUID v8 requires exactly 16 bytes (32 hexadecimal digits) through `--custom-bytes`.
 

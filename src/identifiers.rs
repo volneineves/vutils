@@ -87,6 +87,10 @@ pub fn format_uuid(value: &Uuid, format: UuidFormat) -> String {
     }
 }
 
+pub fn validate_uuid(value: &str) -> bool {
+    Uuid::parse_str(value).is_ok()
+}
+
 pub fn generate_nanoid(length: usize) -> Result<String> {
     const ALPHABET: &[u8] = b"_-0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
     if !(1..=1024).contains(&length) {
@@ -254,5 +258,29 @@ mod tests {
         let value = generate_object_id();
         assert_eq!(value.len(), 24);
         assert!(value.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn validates_supported_uuid_representations() {
+        for value in [
+            "018f1f4e-7b2c-7abc-8def-0123456789ab",
+            "018f1f4e7b2c7abc8def0123456789ab",
+            "urn:uuid:018f1f4e-7b2c-7abc-8def-0123456789ab",
+            "{018f1f4e-7b2c-7abc-8def-0123456789ab}",
+        ] {
+            assert!(validate_uuid(value), "expected {value} to be valid");
+        }
+    }
+
+    #[test]
+    fn rejects_malformed_uuids() {
+        for value in [
+            "",
+            "018f1f4e-7b2c-7abc-8def-0123456789a",
+            "018f1f4e-7b2c-7abc-8def-0123456789ag",
+            "018f1f4e-7b2c-7abc-8def-0123456789ab-extra",
+        ] {
+            assert!(!validate_uuid(value), "expected {value} to be invalid");
+        }
     }
 }

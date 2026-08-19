@@ -102,7 +102,7 @@ pub struct Cli {
 pub enum Command {
     #[command(about = "Open the interactive terminal interface")]
     Tui,
-    #[command(about = "Generate UUIDs v1 through v8")]
+    #[command(about = "Generate or validate UUIDs")]
     Uuid(UuidArgs),
     #[command(subcommand, about = "Generate other identifiers")]
     Id(IdCommand),
@@ -317,6 +317,23 @@ pub enum EncryptionAlgorithmArg {
 
 #[derive(Debug, Args)]
 pub struct UuidArgs {
+    #[arg(
+        long,
+        value_name = "UUID",
+        conflicts_with_all = [
+            "version",
+            "count",
+            "format",
+            "namespace",
+            "name",
+            "node_id",
+            "custom_bytes",
+            "domain",
+            "local_id"
+        ],
+        help = "Validate a UUID instead of generating one"
+    )]
+    pub validate: Option<String>,
     #[arg(
         short,
         long,

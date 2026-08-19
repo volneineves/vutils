@@ -94,6 +94,9 @@ fn dispatch(command: Command, config: &UserConfig) -> Result<Outcome> {
             "internal error: TUI command reached regular dispatcher".into(),
         )),
         Command::Uuid(args) => {
+            if let Some(value) = args.validate.as_deref() {
+                return status_out(identifiers::validate_uuid(value));
+            }
             let version = resolve_uuid_version(args.version, config)?;
             let format = resolve_uuid_format(args.format, config)?;
             validate_count(args.count)?;
