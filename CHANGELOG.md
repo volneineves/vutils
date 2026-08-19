@@ -4,6 +4,12 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-08-19
+
+### Added
+
+- `--update` checks the latest stable GitHub release, validates the downloaded asset against `SHA256SUMS`, and atomically replaces the running `vutils` or `vu` executable.
+
 ## [0.7.1] - 2026-08-19
 
 ### Changed

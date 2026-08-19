@@ -24,7 +24,6 @@ curl -fL -o vutils-latest-x86_64.rpm https://github.com/volneineves/vutils/relea
 sudo dnf install ./vutils-latest-x86_64.rpm
 rm -f ./vutils-latest-x86_64.rpm
 vu --version
-vu --version
 ```
 
 On systems without `dnf`, replace the install line with `sudo rpm -U ./vutils-latest-x86_64.rpm`.
@@ -76,7 +75,17 @@ For an asset downloaded manually into the current directory, stream the checksum
 curl -fsSL https://github.com/volneineves/vutils/releases/latest/download/SHA256SUMS | sha256sum -c - --ignore-missing
 ```
 
-Linux artifacts are built on Ubuntu 22.04 and both executable names are verified not to require a glibc version newer than 2.35, so they run on Ubuntu 22.04 and newer compatible distributions. Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust or Cargo; only Vruno needs network access when given an HTTP(S) OpenAPI URL.
+Linux artifacts are built on Ubuntu 22.04 and both executable names are verified not to require a glibc version newer than 2.35, so they run on Ubuntu 22.04 and newer compatible distributions. Rust 1.88 or newer is required only when building from source. Installed binaries run without Rust or Cargo; network access is only used for an explicit Vruno HTTP(S) OpenAPI URL or `--update`.
+
+### Updating an installed binary
+
+Check for the latest stable release and update the executable in place:
+
+```bash
+vu --update
+```
+
+When invoked through `vutils`, the `vutils` binary is updated; when invoked through `vu`, the `vu` alias is updated. The updater supports Linux x86_64 and macOS x86_64/aarch64, verifies the downloaded asset against the release `SHA256SUMS`, and refuses to replace the binary when the checksum does not match. The executable's directory must be writable; use the appropriate system permissions when updating a system-wide installation.
 
 `vu` is a complete short alias for `vutils`; use either name for every command.
 

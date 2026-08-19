@@ -1,6 +1,7 @@
 mod cli;
 mod key_store;
 mod tui;
+mod update;
 mod vruno;
 
 use std::{env, fs, io::Write as _, path::PathBuf, process::ExitCode};
@@ -25,6 +26,15 @@ struct Outcome {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if cli.update {
+        return match update::run() {
+            Ok(message) => {
+                println!("{message}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => fail(&error),
+        };
+    }
     if cli.author {
         println!("{}", env!("CARGO_PKG_AUTHORS"));
         return ExitCode::SUCCESS;

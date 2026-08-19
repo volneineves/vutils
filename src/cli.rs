@@ -88,6 +88,12 @@ EXAMPLES:
 pub struct Cli {
     #[arg(long, exclusive = true, help = "Print package author information")]
     pub author: bool,
+    #[arg(
+        long,
+        exclusive = true,
+        help = "Check GitHub for the latest stable release and update this executable"
+    )]
+    pub update: bool,
     #[arg(short, long, global = true, help = "Write output to a file")]
     pub output: Option<PathBuf>,
     #[arg(long, global = true, help = "Replace the input file atomically")]
