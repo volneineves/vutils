@@ -323,6 +323,43 @@ fn formats_json_from_stdin() {
 }
 
 #[test]
+fn renders_mermaid_as_unicode_or_portable_ascii() {
+    let source = "flowchart LR\n  edit[Edit] --> render[Rendered]";
+    let unicode = vu()
+        .args(["mermaid", "render", "--literal", source])
+        .output()
+        .unwrap();
+    assert!(unicode.status.success());
+    let unicode = String::from_utf8(unicode.stdout).unwrap();
+    assert!(unicode.contains("Edit"));
+    assert!(unicode.contains("Rendered"));
+    assert!(unicode.contains('┌'));
+
+    let ascii = vu()
+        .args(["mermaid", "render", "--ascii", "--literal", source])
+        .output()
+        .unwrap();
+    assert!(ascii.status.success());
+    let ascii = String::from_utf8(ascii.stdout).unwrap();
+    assert!(ascii.contains("Edit"));
+    assert!(!ascii.contains(['┌', '─', '│', '▶']));
+}
+
+#[test]
+fn mermaid_reports_unsupported_diagram_families() {
+    let output = vu()
+        .args(["mermaid", "render", "--literal", "gitGraph\n  commit"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    let error = String::from_utf8(output.stderr).unwrap();
+    assert!(error.contains("unsupported diagram type"));
+    assert!(error.contains("flowchart"));
+}
+
+#[test]
 fn existing_positional_file_is_read_and_can_be_updated_in_place() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("value.json");

@@ -2071,6 +2071,13 @@ const QR_FIELDS: &[FieldDef] = &[
         FieldArg::Flag("--size"),
     ),
 ];
+const MERMAID_FIELDS: &[FieldDef] = &[toggle_def(
+    "ascii",
+    "ASCII only",
+    "Use portable ASCII instead of Unicode box drawing",
+    false,
+    "--ascii",
+)];
 const COMPLETION_SHELLS: &[&str] = &["bash", "zsh", "fish", "powershell", "elvish"];
 const COMPLETION_FIELDS: &[FieldDef] = &[choice_def(
     "shell",
@@ -2115,6 +2122,17 @@ pub(super) const TOOLS: &[ToolDef] = &[
         fields: CURL_FIELDS,
         uses_input: true,
         sample: Some("curl -H 'Accept: application/json' https://example.com"),
+    },
+    ToolDef {
+        category: Category::Formatters,
+        name: "Render Mermaid",
+        description: "Preview a Mermaid diagram as terminal text",
+        base: &["mermaid", "render"],
+        fields: MERMAID_FIELDS,
+        uses_input: true,
+        sample: Some(
+            "flowchart LR\n  edit[Edit Mermaid] --> validate{Valid?}\n  validate -->|Yes| render[Render in terminal]",
+        ),
     },
     ToolDef {
         category: Category::Formatters,

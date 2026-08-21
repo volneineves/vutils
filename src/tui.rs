@@ -213,6 +213,7 @@ struct App {
     input: Editor,
     output: String,
     output_scroll: u16,
+    output_horizontal_scroll: u16,
     clipboard_value: Option<String>,
     run_state: RunState,
     status: String,
@@ -254,6 +255,7 @@ impl App {
             input: Editor::default(),
             output: empty_output(tool),
             output_scroll: 0,
+            output_horizontal_scroll: 0,
             clipboard_value: None,
             run_state: RunState::Idle,
             status: status.unwrap_or_else(|| tool.description.into()),
@@ -307,6 +309,7 @@ impl App {
         self.input.clear();
         self.output = empty_output(&tool);
         self.output_scroll = 0;
+        self.output_horizontal_scroll = 0;
         self.clipboard_value = None;
         self.status = tool.description.into();
     }
@@ -555,6 +558,7 @@ impl App {
             Ok(receiver) => {
                 self.output = "Running…".into();
                 self.output_scroll = 0;
+                self.output_horizontal_scroll = 0;
                 self.clipboard_value = None;
                 self.run_state = RunState::Running {
                     tool_id: tool_id(&tool),
@@ -601,6 +605,7 @@ impl App {
                     self.clipboard_value = clipboard_text(&execution);
                     self.output = format_execution(&execution);
                     self.output_scroll = 0;
+                    self.output_horizontal_scroll = 0;
                     self.status = format!(
                         "{} in {:.2?} · exit {exit}",
                         if success { "Completed" } else { "Failed" },
@@ -621,6 +626,7 @@ impl App {
                 if tool_id(self.tool()) == run_tool_id {
                     self.output = error.clone();
                     self.output_scroll = 0;
+                    self.output_horizontal_scroll = 0;
                     self.clipboard_value = None;
                     self.status = error;
                 } else {
@@ -633,6 +639,7 @@ impl App {
                 if tool_id(self.tool()) == run_tool_id {
                     self.output = "The command worker stopped without a result".into();
                     self.output_scroll = 0;
+                    self.output_horizontal_scroll = 0;
                     self.clipboard_value = None;
                     self.status = "Command worker disconnected".into();
                 } else {
@@ -940,9 +947,18 @@ fn handle_output_key(app: &mut App, key: KeyEvent) {
         KeyCode::Char('k') | KeyCode::Up => {
             app.output_scroll = app.output_scroll.saturating_sub(1);
         }
+        KeyCode::Right if tool_id(app.tool()) == "mermaid.render" => {
+            app.output_horizontal_scroll = app.output_horizontal_scroll.saturating_add(2);
+        }
+        KeyCode::Left if tool_id(app.tool()) == "mermaid.render" => {
+            app.output_horizontal_scroll = app.output_horizontal_scroll.saturating_sub(2);
+        }
         KeyCode::PageDown => app.output_scroll = app.output_scroll.saturating_add(10),
         KeyCode::PageUp => app.output_scroll = app.output_scroll.saturating_sub(10),
-        KeyCode::Home | KeyCode::Char('g') => app.output_scroll = 0,
+        KeyCode::Home | KeyCode::Char('g') => {
+            app.output_scroll = 0;
+            app.output_horizontal_scroll = 0;
+        }
         KeyCode::End | KeyCode::Char('G') => {
             app.output_scroll = usize_to_u16(app.output.lines().count().saturating_sub(1));
         }
@@ -1292,12 +1308,14 @@ fn render_output(frame: &mut Frame, app: &App, area: Rect) {
     let block = panel(" Output ".into(), app.focus == Focus::Output);
     let inner = block.inner(area);
     frame.render_widget(block, area);
-    frame.render_widget(
-        Paragraph::new(app.output.as_str())
-            .scroll((app.output_scroll, 0))
-            .wrap(Wrap { trim: false }),
-        inner,
-    );
+    let output = Paragraph::new(app.output.as_str())
+        .scroll((app.output_scroll, app.output_horizontal_scroll));
+    let output = if tool_id(app.tool()) == "mermaid.render" {
+        output
+    } else {
+        output.wrap(Wrap { trim: false })
+    };
+    frame.render_widget(output, inner);
 }
 
 fn render_command(frame: &mut Frame, app: &App, area: Rect) {
@@ -1344,6 +1362,9 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
         Focus::Parameters if app.editing_field => "type value · Enter accept · Esc return",
         Focus::Parameters => "↑↓ field · ←→ value · Space toggle · Enter edit",
         Focus::Input => "edit input · Tab output · Ctrl-R run",
+        Focus::Output if tool_id(app.tool()) == "mermaid.render" => {
+            "arrows scroll diagram · y copy · Tab operations"
+        }
         Focus::Output => "↑↓ scroll · y copy · Tab operations",
     };
     frame.render_widget(
@@ -1957,18 +1978,60 @@ mod tests {
     #[test]
     fn output_arrows_scroll_without_changing_panel_focus() {
         let mut app = app();
+        app.select_category(2);
+        let mermaid_position = app
+            .tool_indices()
+            .iter()
+            .position(|index| TOOLS[*index].name == "Render Mermaid")
+            .unwrap();
+        app.move_tool(mermaid_position as isize);
         app.focus = Focus::Output;
 
         press(&mut app, KeyCode::Down);
         assert_eq!(app.output_scroll, 1);
         assert_eq!(app.focus, Focus::Output);
 
-        press(&mut app, KeyCode::Left);
         press(&mut app, KeyCode::Right);
+        assert_eq!(app.output_horizontal_scroll, 2);
+        press(&mut app, KeyCode::Left);
+        assert_eq!(app.output_horizontal_scroll, 0);
         assert_eq!(app.focus, Focus::Output);
 
         press(&mut app, KeyCode::Tab);
         assert_eq!(app.focus, Focus::Operations);
+    }
+
+    #[test]
+    fn mermaid_preview_preserves_the_terminal_diagram_layout() {
+        let backend = TestBackend::new(100, MIN_HEIGHT);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let mut app = app();
+        app.select_category(2);
+        let mermaid_position = app
+            .tool_indices()
+            .iter()
+            .position(|index| TOOLS[*index].name == "Render Mermaid")
+            .unwrap();
+        app.move_tool(mermaid_position as isize);
+        app.output = vutils::mermaid::render(
+            "flowchart LR\n  edit[Edit] --> render[Rendered]",
+            vutils::mermaid::CharacterSet::Unicode,
+        )
+        .unwrap();
+        app.focus = Focus::Output;
+
+        terminal.draw(|frame| render(frame, &app)).unwrap();
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Edit"));
+        assert!(rendered.contains("Rendered"));
+        assert!(rendered.contains("arrows scroll diagram"));
     }
 
     #[test]
@@ -1993,7 +2056,12 @@ mod tests {
         let config = UserConfig::load_from(path.clone()).unwrap();
         let mut app = App::from_config(Some(config), None);
         app.select_category(2);
-        app.move_tool(3);
+        let minify_position = app
+            .tool_indices()
+            .iter()
+            .position(|index| TOOLS[*index].name == "Minify")
+            .unwrap();
+        app.move_tool(minify_position as isize);
         assert_eq!(app.tool().name, "Minify");
 
         app.toggle_selected_home_tool();

@@ -14,7 +14,7 @@ use vutils::{
     config::UserConfig,
     countries, data, generators, http, identifiers,
     io::{InputArgs, OutputArgs},
-    security, sql, text, time,
+    mermaid, security, sql, text, time,
 };
 
 struct Outcome {
@@ -267,6 +267,17 @@ fn dispatch(command: Command, config: &UserConfig) -> Result<Outcome> {
             input,
         ),
         Command::Curl(command) => dispatch_curl(command),
+        Command::Mermaid(MermaidCommand::Render { ascii, input }) => text_out(
+            mermaid::render(
+                &read_text(&input)?,
+                if ascii {
+                    mermaid::CharacterSet::Ascii
+                } else {
+                    mermaid::CharacterSet::Unicode
+                },
+            )?,
+            input,
+        ),
         Command::Sql(command) => dispatch_sql(command, config),
         Command::Text(command) => dispatch_text(command),
         Command::Regex(command) => match command {

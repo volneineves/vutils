@@ -10,6 +10,7 @@ pub mod generators;
 pub mod http;
 pub mod identifiers;
 pub mod io;
+pub mod mermaid;
 pub mod security;
 pub mod sql;
 pub mod text;

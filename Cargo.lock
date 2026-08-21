@@ -143,6 +143,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
 name = "apple-native-keyring-store"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1853,6 +1859,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "meraid"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "390c39e080d7fd87ae6430c77d3c40567c83cf50c7b385153bcee72ac54a57df"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "unicode-width",
+]
+
+[[package]]
 name = "micromap"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3525,7 +3544,7 @@ checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 
 [[package]]
 name = "vutils"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "aes-gcm",
  "arboard",
@@ -3548,6 +3567,7 @@ dependencies = [
  "ipnet",
  "jsonschema",
  "keyring",
+ "meraid",
  "percent-encoding",
  "proptest",
  "qrcode",

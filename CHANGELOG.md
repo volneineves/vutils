@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows Keep
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-08-21
+
+### Added
+
+- Native offline Mermaid rendering through `vu mermaid render`, with Unicode and ASCII output for flowchart, sequence, class, state, entity-relationship, and pie diagrams.
+- Interactive Mermaid editing and preview in the TUI Formatters tab, including layout-preserving horizontal output scrolling.
+
 ## [0.7.2] - 2026-08-19
 
 ### Added

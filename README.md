@@ -97,9 +97,9 @@ Run the full-screen interface in any interactive terminal:
 vu tui
 ```
 
-The TUI opens on a customizable **Home** with the most common backend actions: JSON and SQL formatting, UUID and password generation, and encryption/decryption. Its fixed workflow tabs are **Random**, **Formatters**, **Parsers**, **Validators**, **Codecs**, **Security**, **Vruno**, and **Configuration**. Formatters groups output normalization such as JSON, SQL, cURL, YAML, XML, text, and byte sizes; Parsers groups extraction, conversion, regex inspection, model inference, cron, and time utilities; Validators groups UUID, JSON, JSON Schema, YAML, CSV, TOML, XML, and dotenv validation. Each operation exposes only its relevant parameters, an empty multiline input editor with a dimmed example placeholder when needed, the exact generated CLI command, and an output preview scoped to the selected operation. The Configuration tab provides typed editors for every supported setting, plus an explicit reset action for restoring defaults or clearing optional values. The Random tab keeps one caveat visible in the UUID version help: v3 and v5 are deterministic for the same namespace and name.
+The TUI opens on a customizable **Home** with the most common backend actions: JSON and SQL formatting, UUID and password generation, and encryption/decryption. Its fixed workflow tabs are **Random**, **Formatters**, **Parsers**, **Validators**, **Codecs**, **Security**, **Vruno**, and **Configuration**. Formatters groups output normalization such as JSON, SQL, cURL, Mermaid, YAML, XML, text, and byte sizes; Parsers groups extraction, conversion, regex inspection, model inference, cron, and time utilities; Validators groups UUID, JSON, JSON Schema, YAML, CSV, TOML, XML, and dotenv validation. Each operation exposes only its relevant parameters, an empty multiline input editor with a dimmed example placeholder when needed, the exact generated CLI command, and an output preview scoped to the selected operation. The Configuration tab provides typed editors for every supported setting, plus an explicit reset action for restoring defaults or clearing optional values. The Random tab keeps one caveat visible in the UUID version help: v3 and v5 are deterministic for the same namespace and name.
 
-Use `0` to return Home; `1` opens Random, `2` Formatters, `3` Parsers, `4` Validators, `5` Codecs, `6` Security, `7` Vruno, and `8` Configuration. `[`/`]` or `h`/`l` from the operations panel also change tabs. `Tab` and `Shift-Tab` are the predictable way to move between panels. Arrow keys stay local to the active panel: they navigate operations and fields, edit Input, and scroll Output without unexpectedly changing focus. `h`/`l` remains available for Vim-style panel navigation and changes choices or numeric values in Parameters. `Space` toggles options; `Enter` edits text and numeric values. Run with `Ctrl-R` or `F5`; `q` opens a safe quit confirmation (defaulting to **No**), while explicit `:q`, `:qa`, `:qall`, or `Ctrl-C` close directly; press `?` for the complete shortcut reference. Vim keys remain ordinary text while editing Input or a field.
+Use `0` to return Home; `1` opens Random, `2` Formatters, `3` Parsers, `4` Validators, `5` Codecs, `6` Security, `7` Vruno, and `8` Configuration. `[`/`]` or `h`/`l` from the operations panel also change tabs. `Tab` and `Shift-Tab` are the predictable way to move between panels. Arrow keys stay local to the active panel: they navigate operations and fields, edit Input, and scroll Output without unexpectedly changing focus. Mermaid previews preserve their layout and support horizontal scrolling with `Left`/`Right`. `h`/`l` remains available for Vim-style panel navigation and changes choices or numeric values in Parameters. `Space` toggles options; `Enter` edits text and numeric values. Run with `Ctrl-R` or `F5`; `q` opens a safe quit confirmation (defaulting to **No**), while explicit `:q`, `:qa`, `:qall`, or `Ctrl-C` close directly; press `?` for the complete shortcut reference. Vim keys remain ordinary text while editing Input or a field.
 
 Every operational leaf command in the CLI tree has a typed TUI operation, guarded by a catalog-coverage test. Command-specific choices and flags are presented as fields; commands using the common `InputOptions` contract receive their content from the empty editor, whose dimmed sample is only a placeholder. Global file-output flags remain CLI concerns because the TUI safely captures results in its scoped preview and exposes UTF-8 copy with `y`.
 
@@ -164,6 +164,20 @@ vu base64 decode 'AAEC' --output bytes.bin
 ```
 
 `--input` remains useful when a missing or unreadable path must produce a filesystem error instead of being treated as literal input. `--in-place` writes a temporary file beside the detected or explicit source and replaces the original only after successful transformation. `--output` refuses to overwrite an existing file unless `--force` is present. `--copy` additionally copies UTF-8 output to the local clipboard.
+
+## Mermaid diagrams in the terminal
+
+Render Mermaid source directly from stdin, a file, or a literal value. Unicode box drawing is the default; `--ascii` provides a portable fallback for limited terminals.
+
+```bash
+printf '%s\n' 'flowchart LR' '  A[Edit] --> B[Render]' | vu mermaid render
+vu mermaid render architecture.mmd
+vu mermaid render --ascii architecture.mmd
+```
+
+For an interactive preview, run `vu tui`, open **Formatters**, select **Render Mermaid**, edit the source in **Input**, and press `Ctrl-R` or `F5`. Move to **Output** with `Tab`; arrow keys scroll diagrams vertically and horizontally.
+
+The native offline renderer supports `flowchart`/`graph`, `sequenceDiagram`, `classDiagram`, `stateDiagram-v2`, `erDiagram`, and `pie`. It intentionally produces monochrome terminal text and implements a useful Mermaid subset rather than full Mermaid.js browser parity; unsupported diagram families return an explicit error.
 
 ## Persistent defaults
 
@@ -349,6 +363,7 @@ Without `--output`, decoded binary bytes are written directly to stdout and can 
 | --- | --- |
 | `curl format` | Normalize and safely quote a static cURL command. |
 | `sql format` | Format SQL for the selected dialect, keyword case, and indentation. |
+| `mermaid render` | Render supported Mermaid diagrams as Unicode or ASCII terminal text. |
 
 ### Security and local inspection
 

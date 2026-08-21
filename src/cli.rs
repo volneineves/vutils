@@ -166,6 +166,8 @@ pub enum Command {
     Code(CodeCommand),
     #[command(subcommand, about = "Format static cURL commands")]
     Curl(CurlCommand),
+    #[command(subcommand, about = "Render Mermaid diagrams as terminal text")]
+    Mermaid(MermaidCommand),
     #[command(subcommand, about = "Format SQL")]
     Sql(SqlCommand),
     #[command(subcommand, about = "Transform and compare text")]
@@ -1182,6 +1184,23 @@ pub enum QrCommand {
             help = "Image size in pixels (SVG/PNG only)"
         )]
         size: u32,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+}
+#[derive(Debug, Subcommand)]
+pub enum MermaidCommand {
+    #[command(
+        about = "Render a Mermaid diagram using Unicode or ASCII characters",
+        long_about = "Render a Mermaid diagram as plain terminal text. Supports flowchart/graph, sequenceDiagram, classDiagram, stateDiagram-v2, erDiagram, and pie."
+    )]
+    Render {
+        #[arg(
+            long,
+            short = 'a',
+            help = "Use portable ASCII characters instead of Unicode box drawing"
+        )]
+        ascii: bool,
         #[command(flatten)]
         input: InputOptions,
     },
