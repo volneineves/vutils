@@ -1340,11 +1340,31 @@ const PASSWORD_SOURCES: &[&str] = &["automatic", "direct", "environment", "file"
 const PASSWORD_DIRECT: &[&str] = &["direct"];
 const PASSWORD_ENVIRONMENT: &[&str] = &["environment"];
 const PASSWORD_FILE: &[&str] = &["file"];
+const JWT_FIELDS: &[FieldDef] = &[
+    FieldDef {
+        key: "secret",
+        label: "JWT secret",
+        help: "HS256 secret, at least 32 bytes; separate from the enc/dec default key",
+        kind: FieldKind::Secret { required: true },
+        arg: FieldArg::Flag("--secret"),
+        condition: None,
+    },
+];
+const DEFAULT_KEY_FIELDS: &[FieldDef] = &[
+    FieldDef {
+        key: "key",
+        label: "Default key",
+        help: "Save in the OS credential store; later enc/dec commands will not replace this default",
+        kind: FieldKind::Secret { required: true },
+        arg: FieldArg::Flag("--key"),
+        condition: None,
+    },
+];
 const PASSWORD_SOURCE_FIELDS: &[FieldDef] = &[
     FieldDef {
         key: "password_source",
         label: "Key source",
-        help: "Automatic uses configured settings then the last saved key; other choices override it",
+        help: "Automatic uses configured env/file, then the saved default or last key; config key-status diagnoses failures",
         kind: FieldKind::Choice {
             options: PASSWORD_SOURCES,
             default: 0,
@@ -2568,6 +2588,24 @@ pub(super) const TOOLS: &[ToolDef] = &[
     },
     ToolDef {
         category: Category::Security,
+        name: "Sign JWT (HS256)",
+        description: "Create a signed JWT from JSON claims with an explicit secret",
+        base: &["jwt", "sign"],
+        fields: JWT_FIELDS,
+        uses_input: true,
+        sample: Some(r#"{"sub":"123","role":"user"}"#),
+    },
+    ToolDef {
+        category: Category::Security,
+        name: "Verify JWT (HS256)",
+        description: "Verify signature and exp/nbf; issuer/audience are application-specific",
+        base: &["jwt", "verify"],
+        fields: JWT_FIELDS,
+        uses_input: true,
+        sample: None,
+    },
+    ToolDef {
+        category: Category::Security,
         name: "TOTP secret",
         description: "Generate a local Base32 TOTP secret",
         base: &["totp", "generate-secret"],
@@ -3193,6 +3231,24 @@ pub(super) const TOOLS: &[ToolDef] = &[
         description: "Set the default encryption algorithm",
         base: &["config", "set", "crypto.algorithm"],
         fields: CONFIG_CRYPTO_FIELDS,
+        uses_input: false,
+        sample: None,
+    },
+    ToolDef {
+        category: Category::Configuration,
+        name: "Save default key",
+        description: "Set the enc/dec default explicitly in the OS credential store",
+        base: &["config", "remember-key"],
+        fields: DEFAULT_KEY_FIELDS,
+        uses_input: false,
+        sample: None,
+    },
+    ToolDef {
+        category: Category::Configuration,
+        name: "Key status",
+        description: "Inspect the automatic key source and credential-store availability",
+        base: &["config", "key-status"],
+        fields: NO_FIELDS,
         uses_input: false,
         sample: None,
     },

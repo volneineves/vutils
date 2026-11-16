@@ -140,7 +140,7 @@ fn configured_form(tool: &ToolDef, config: Option<&UserConfig>) -> Vec<FieldStat
 
 fn empty_output(tool: &ToolDef) -> String {
     format!(
-        "No output for {} yet. Review its parameters and press Ctrl-R to run.",
+        "{}: fill parameters, enter input, then press F5 to run.",
         tool.name
     )
 }
@@ -218,6 +218,8 @@ struct App {
     run_state: RunState,
     status: String,
     command: Option<Editor>,
+    search: Option<Editor>,
+    search_selection: usize,
     quit_confirmation: Option<bool>,
     show_help: bool,
     should_quit: bool,
@@ -260,9 +262,55 @@ impl App {
             run_state: RunState::Idle,
             status: status.unwrap_or_else(|| tool.description.into()),
             command: None,
+            search: None,
+            search_selection: 0,
             quit_confirmation: None,
             show_help: false,
             should_quit: false,
+        }
+    }
+
+    fn search_results(&self) -> Vec<usize> {
+        let query = self.search.as_ref().map(Editor::value).unwrap_or_default();
+        let query = query.to_lowercase();
+        let words: Vec<_> = query.split_whitespace().collect();
+        TOOLS
+            .iter()
+            .enumerate()
+            .filter_map(|(index, tool)| {
+                let text = format!(
+                    "{} {} {} {}",
+                    tool.name, tool.description, tool_id(tool), tool.category.label()
+                ).to_lowercase();
+                words.iter().all(|word| text.contains(*word)).then_some(index)
+            })
+            .collect()
+    }
+
+    fn handle_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.search = None,
+            KeyCode::Down => {
+                self.search_selection = (self.search_selection + 1)
+                    .min(self.search_results().len().saturating_sub(1));
+            }
+            KeyCode::Up => self.search_selection = self.search_selection.saturating_sub(1),
+            KeyCode::Enter => {
+                if let Some(index) = self.search_results().get(self.search_selection).copied() {
+                    self.search = None;
+                    self.category = TOOLS[index].category as usize;
+                    self.tool_selections[self.category] = tools_in(self.category())
+                        .iter().position(|candidate| *candidate == index).unwrap_or(0);
+                    self.load_selected_tool();
+                    self.activate_tool();
+                }
+            }
+            _ => {
+                if let Some(editor) = &mut self.search {
+                    editor.handle_key(key, false, false);
+                    self.search_selection = 0;
+                }
+            }
         }
     }
 
@@ -777,7 +825,10 @@ fn run_app(terminal: &mut DefaultTerminal) -> io::Result<()> {
                     handle_key(&mut app, key);
                 }
                 Event::Paste(value) => {
-                    if app.editing_field {
+                    if let Some(editor) = &mut app.search {
+                        editor.insert_str(&value, false);
+                        app.search_selection = 0;
+                    } else if app.editing_field {
                         app.paste_into_field(&value);
                     } else if app.focus == Focus::Input {
                         app.input.insert_str(&value, true);
@@ -797,6 +848,30 @@ fn run_app(terminal: &mut DefaultTerminal) -> io::Result<()> {
 fn handle_key(app: &mut App, key: KeyEvent) {
     if app.quit_confirmation.is_some() {
         app.handle_quit_confirmation(key);
+        return;
+    }
+
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        app.request_quit();
+        return;
+    }
+    if app.search.is_some() {
+        app.handle_search_key(key);
+        return;
+    }
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('p') {
+        app.search = Some(Editor::default());
+        app.search_selection = 0;
+        app.editing_field = false;
+        return;
+    }
+    if !app.show_help
+        && app.command.is_none()
+        && (key.code == KeyCode::F(5)
+            || (key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('r')))
+    {
+        app.editing_field = false;
+        app.start_execution();
         return;
     }
 
@@ -902,6 +977,10 @@ fn handle_key(app: &mut App, key: KeyEvent) {
 
 fn handle_operation_key(app: &mut App, key: KeyEvent) {
     match key.code {
+        KeyCode::Char('/') => {
+            app.search = Some(Editor::default());
+            app.search_selection = 0;
+        }
         KeyCode::Char('j') | KeyCode::Down => app.move_tool(1),
         KeyCode::Char('k') | KeyCode::Up => app.move_tool(-1),
         KeyCode::Char('g') | KeyCode::Home => {
@@ -1001,6 +1080,9 @@ fn render(frame: &mut Frame, app: &App) {
     if app.show_help {
         render_help(frame, area);
     }
+    if app.search.is_some() {
+        render_search(frame, app, area);
+    }
     if let Some(selected_yes) = app.quit_confirmation {
         render_quit_confirmation(frame, area, selected_yes);
     }
@@ -1026,7 +1108,7 @@ fn render_header(frame: &mut Frame, app: &App, area: Rect) {
                     .bg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw("  backend workbench  "),
+            Span::raw("  Ctrl-P find a tool · F5 run  "),
             Span::styled(activity, activity_style),
         ]))
         .block(
@@ -1373,14 +1455,52 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
             Line::from(vec![
                 Span::styled(" Ctrl-R ", key_style()),
                 Span::raw("run  "),
-                Span::styled(" [ ] / 0-8 ", key_style()),
-                Span::raw("tabs  "),
+                Span::styled(" Ctrl-P ", key_style()),
+                Span::raw("find tool  "),
                 Span::styled(" ? ", key_style()),
                 Span::raw("help  "),
                 Span::styled(focus_hint, Style::default().fg(Color::DarkGray)),
             ]),
         ]),
         area,
+    );
+}
+
+fn render_search(frame: &mut Frame, app: &App, area: Rect) {
+    let width = area.width.saturating_sub(6).min(90);
+    let height = area.height.saturating_sub(4).min(22);
+    let popup = Rect {
+        x: area.x + (area.width - width) / 2,
+        y: area.y + (area.height - height) / 2,
+        width,
+        height,
+    };
+    frame.render_widget(Clear, popup);
+    let block = panel(" Find a tool · ↑↓ choose · Enter open · Esc close ".into(), true);
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let [query_area, results_area] =
+        Layout::vertical([Constraint::Length(2), Constraint::Min(1)]).areas(inner);
+    let query = app.search.as_ref().map(Editor::value).unwrap_or_default();
+    let visible_query = visible_suffix(&query, query.width().saturating_sub(usize::from(width.saturating_sub(6))));
+    frame.render_widget(Paragraph::new(format!("> {visible_query}")), query_area);
+    let results = app.search_results();
+    if results.is_empty() {
+        frame.render_widget(
+            Paragraph::new("No tools found. Try JWT, encrypt, JSON, or key."),
+            results_area,
+        );
+        return;
+    }
+    let items = results.iter().map(|index| {
+        let tool = &TOOLS[*index];
+        ListItem::new(format!("{} · {}", tool.name, tool.category.label()))
+    });
+    let mut state = ListState::default().with_selected(Some(app.search_selection));
+    frame.render_stateful_widget(
+        List::new(items).highlight_symbol("▸ ").highlight_style(Style::default().fg(Color::Cyan)),
+        results_area,
+        &mut state,
     );
 }
 
@@ -1396,6 +1516,7 @@ fn render_help(frame: &mut Frame, area: Rect) {
     frame.render_widget(Clear, popup);
     let help = [
         "Navigation",
+        "  Ctrl-P find any tool · / search from operations",
         "  0 Home · 1-8 categories · [ ] previous/next tab",
         "  ↑↓/jk navigate; ↑↓ scroll Output; ←→ edit Input/value",
         "  h/l keeps Vim-style tab, value, and panel navigation",
@@ -2116,5 +2237,39 @@ mod tests {
         assert_eq!(app.home_tools.len(), 1);
         assert_eq!(tool_id(app.tool()), "uuid");
         assert!(app.status.contains("unknown.command"));
+    }
+}
+
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    #[test]
+    fn search_finds_commands_across_categories_and_preserves_workspace_on_cancel() {
+        let mut app = App::from_config(None, None);
+        app.input.insert_str("keep this input", false);
+        let previous_tool = tool_id(app.tool());
+        handle_key(&mut app, KeyEvent::new(KeyCode::Char('p'), KeyModifiers::CONTROL));
+        app.search = Some(Editor::from("JWT verify"));
+        assert_eq!(app.search_results().len(), 1);
+        handle_key(&mut app, KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(tool_id(app.tool()), previous_tool);
+        assert_eq!(app.input.value(), "keep this input");
+        app.search = Some(Editor::from("jwt verify"));
+        handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(tool_id(app.tool()), "jwt.verify");
+        assert_eq!(app.focus, Focus::Parameters);
+    }
+
+    #[test]
+    fn empty_results_cannot_change_the_selected_tool() {
+        let mut app = App::from_config(None, None);
+        let previous_tool = tool_id(app.tool());
+        app.search = Some(Editor::from("no-such-tool-xyz"));
+        handle_key(&mut app, KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
+        handle_key(&mut app, KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        assert!(app.search.is_some());
+        assert_eq!(tool_id(app.tool()), previous_tool);
     }
 }

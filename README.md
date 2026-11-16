@@ -103,7 +103,9 @@ Use `0` to return Home; `1` opens Random, `2` Formatters, `3` Parsers, `4` Valid
 
 Every operational leaf command in the CLI tree has a typed TUI operation, guarded by a catalog-coverage test. Command-specific choices and flags are presented as fields; commands using the common `InputOptions` contract receive their content from the empty editor, whose dimmed sample is only a placeholder. Global file-output flags remain CLI concerns because the TUI safely captures results in its scoped preview and exposes UTF-8 copy with `y`.
 
-Encrypt and Decrypt provide a **Key source** choice: automatic resolution, a direct masked key, an environment variable, or a local file. Automatic resolution uses the configured legacy-named `crypto.password-env`/`crypto.password-file` source first and then the last saved key. Direct keys render as bullets, appear as `<redacted>` in the command preview, and are passed through an ephemeral child-process environment variable instead of being exposed in its argument list. After successful encryption or decryption, the key itself is remembered in the native operating-system credential store, never in `config.toml`.
+Press `Ctrl-P` from any panel (or `/` from the operations list) to find a tool by name, command, category, or description. Type a few words such as `jwt verify`, `default key`, or `json`, use the arrows to choose, and press Enter to open it. Esc closes search and preserves the current workspace. Fill parameters and input, then press `F5` or `Ctrl-R` to run, including while editing a parameter.
+
+Encrypt and Decrypt provide a **Key source** choice: automatic resolution, a direct masked key, an environment variable, or a local file. Automatic resolution uses the configured legacy-named `crypto.password-env`/`crypto.password-file` source first and then the explicitly saved default key, falling back to the last successful key. Use **Save default key** and **Key status** in Configuration (also available through search). Direct keys render as bullets, appear as `<redacted>` in the command preview, and are passed through an ephemeral child-process environment variable instead of being exposed in its argument list. After successful encryption or decryption, the key itself is remembered in the native operating-system credential store, never in `config.toml`.
 
 To customize Home, select any operation in its category and press `f` to add or remove it. From Home, `Delete` removes the selected shortcut and `R` restores the built-in set. Changes are saved atomically under `tui.home` in the existing `config.toml`; Home only references known vutils operations and never executes arbitrary shell commands.
 
@@ -244,7 +246,7 @@ ENCRYPTED="$(vu enc 'Texto secreto')"  # reads VUTILS_PASSWORD
 vu dec "$ENCRYPTED"                    # reads VUTILS_PASSWORD
 ```
 
-`crypto.password-env` is therefore an automation pointer, not the secret itself: the configuration saves only an environment-variable name, while that variable's value supplies the key used by `enc` and `dec`. Setting `crypto.password-env` clears `crypto.password-file` and vice versa. A relative key-file path is resolved from the config directory. Every successful `enc` or `dec` also replaces the last key in the operating-system credential store, so later commands can omit all key options; explicit `--key*` options take precedence, followed by the configured environment/file source and then the saved key. Remove that saved credential with `vu config forget-key`. If the native credential store is unavailable, an explicit key still completes the operation and `vu` prints a warning that it could not remember it. `dec` detects the algorithm recorded in each envelope; `crypto.algorithm` selects the default for new `enc` output, while an explicit `--alg` overrides it.
+`crypto.password-env` is therefore an automation pointer, not the secret itself: the configuration saves only an environment-variable name, while that variable's value supplies the key used by `enc` and `dec`. Setting `crypto.password-env` clears `crypto.password-file` and vice versa. A relative key-file path is resolved from the config directory. Every successful `enc` or `dec` also replaces the last key in the operating-system credential store, so later commands can omit all key options. An explicitly saved default is stored separately and survives one-off overrides; explicit `--key*` options take precedence, followed by the configured environment/file source and then the explicit default and finally the last successful key. Remove both saved credentials with `vu config forget-key`. If the native credential store is unavailable, an explicit key still completes the operation and `vu` prints a warning that it could not remember it. `dec` detects the algorithm recorded in each envelope; `crypto.algorithm` selects the default for new `enc` output, while an explicit `--alg` overrides it.
 
 The default config locations are `$XDG_CONFIG_HOME/vutils/config.toml` (or `~/.config/vutils/config.toml`) on Linux and `~/Library/Application Support/vutils/config.toml` on macOS. Set `VUTILS_CONFIG` to use a different file, which is also useful for isolated project profiles.
 
@@ -274,7 +276,31 @@ Except for an explicit Vruno HTTP(S) OpenAPI source, commands operate on local i
 | Command | Purpose |
 | --- | --- |
 | `base64 encode` / `base64 decode` | Convert binary data to or from standard or URL-safe Base64, with optional padding. |
-| `binary encode` / `binary decode` | Convert bytes to 8-bit `0`/`1` text and decode those bits back to the original bytes. Alias: `bin`. |
+| `binary encode` / Set an explicit default without encrypting a token first:
+
+```sh
+vu config remember-key --key-env VUTILS_PASSWORD
+vu config key-status
+vu enc 'my token'
+vu dec 'vu1:...'
+vu config forget-key
+```
+
+`remember-key` also accepts `--key-file` or `--key`. It fails if the OS credential store cannot save and read back the key. On Linux, a running, unlocked Secret Service keyring is required. On systems without a desktop keyring, configure `crypto.password-file` or `crypto.password-env` instead. Configured file/environment sources take precedence over the saved default. The key itself is never written to `config.toml`.
+
+JWT support includes inspection, signing, and verification:
+
+```sh
+# JWT_SECRET must contain at least 32 bytes; use a strong random secret.
+vu jwt sign '{"sub":"123","exp":4102444800}' --secret-env JWT_SECRET
+vu jwt verify "$TOKEN" --secret-env JWT_SECRET
+vu jwt decode "$TOKEN"
+# Claims/tokens can also be read from stdin or --input.
+```
+
+Signing and verification support HS256 with an explicit JWT secret (`--secret-env`, `--secret-file`, or `--secret`), separate from the enc/dec default. Verification rejects a bad signature, unsupported algorithms/header extensions, malformed temporal claims, expired `exp`, and future `nbf`. Temporal claims are optional; issuer, audience, and application authorization must be checked separately. Decode only inspects claims and always warns that the signature has not been verified.
+
+`binary decode` | Convert bytes to 8-bit `0`/`1` text and decode those bits back to the original bytes. Alias: `bin`. |
 | `hex encode` / `hex decode` | Convert binary data to or from hexadecimal text. |
 | `url encode` / `url decode` | Percent-encode or decode URL/form components. |
 | `url inspect` | Parse a URL and report its components without opening it. |
@@ -375,7 +401,7 @@ Without `--output`, decoded binary bytes are written directly to stdout and can 
 | `password-hash bcrypt-hash` / `bcrypt-verify` | Hash or verify a UTF-8 password using bcrypt. |
 | `totp generate-secret` | Generate a local Base32 TOTP secret. |
 | `totp code` / `totp verify` | Calculate or verify offline TOTP codes with configurable algorithm, period, digits, and window. |
-| `jwt decode` | Decode JWT header/payload and inspect temporal claims without verifying the signature. |
+| `jwt decode/sign/verify` | Inspect claims, sign with HS256, or verify HS256 signature and temporal claims. |
 | `checksum file` / `checksum directory` | Calculate deterministic SHA checksums for a file or directory tree. |
 | `pem inspect` | List PEM blocks, decoded sizes, and whether a block appears sensitive. |
 | `cert inspect` | Inspect a local PEM X.509 certificate, including names, validity, serial, and SANs. |
@@ -397,7 +423,7 @@ Without `--output`, decoded binary bytes are written directly to stdout and can 
 | `mime` | Look up a MIME type from a file extension using the built-in table. |
 | `tui` | Open the category-based full-screen workbench for interactive transformations and generators. |
 | `vruno configure/show/check/preview/sync` | Configure and run Bruno OpenAPI collection drift checks and synchronization. |
-| `config path/list/get/set/unset/forget-key` | Inspect or manage validated per-user defaults and remove the key saved in the OS credential store. |
+| `config path/list/get/set/unset/remember-key/key-status/forget-key` | Inspect or manage validated per-user defaults and remove the key saved in the OS credential store. |
 | `completion` | Generate Bash, Zsh, Fish, PowerShell, or Elvish completion scripts. |
 | `man` | Generate the `vutils(1)` manual page. |
 

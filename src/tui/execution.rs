@@ -67,7 +67,8 @@ fn protect_direct_secrets(args: Vec<String>) -> (Vec<String>, Vec<(String, Strin
     const SECRET_FLAG: &[(&str, &str, &str)] = &[("--secret", "--secret-env", "VUTILS_TUI_SECRET")];
     let sensitive_flags = match args.first().map(String::as_str) {
         Some("enc" | "dec") => KEY_FLAG,
-        Some("hmac" | "password-hash" | "totp") => SECRET_FLAG,
+        Some("config") if args.get(1).is_some_and(|arg| arg == "remember-key") => KEY_FLAG,
+        Some("hmac" | "password-hash" | "totp" | "jwt") => SECRET_FLAG,
         _ => return (args, Vec::new()),
     };
     let mut protected = Vec::with_capacity(args.len());
@@ -193,4 +194,16 @@ mod tests {
         assert_eq!(args, original);
         assert!(environment.is_empty());
     }
+    #[test]
+    fn jwt_and_default_keys_are_not_exposed_in_child_arguments() {
+        for original in [
+            vec!["jwt", "sign", "--secret", "sensitive"],
+            vec!["config", "remember-key", "--key", "sensitive"],
+        ] {
+            let (args, environment) = protect_direct_secrets(original.into_iter().map(str::to_owned).collect());
+            assert!(!args.iter().any(|arg| arg == "sensitive"));
+            assert_eq!(environment[0].1, "sensitive");
+        }
+    }
+
 }

@@ -196,7 +196,7 @@ pub enum Command {
     PasswordHash(PasswordHashCommand),
     #[command(subcommand, about = "Generate and verify offline TOTP codes")]
     Totp(TotpCommand),
-    #[command(subcommand, about = "Decode JWTs without verifying signatures")]
+    #[command(subcommand, about = "Inspect, sign, and verify JWTs (HS256)")]
     Jwt(JwtCommand),
     #[command(subcommand, about = "Calculate file or directory checksums")]
     Checksum(ChecksumCommand),
@@ -413,8 +413,12 @@ pub enum ConfigCommand {
     Set { key: String, value: String },
     #[command(about = "Remove a persisted value and restore its built-in default")]
     Unset { key: String },
-    #[command(about = "Remove the last encryption key from the operating-system credential store")]
+    #[command(about = "Remove the default and last encryption keys from the OS credential store")]
     ForgetKey,
+    #[command(about = "Save a default enc/dec key in the OS credential store")]
+    RememberKey(EncryptionKeyOptions),
+    #[command(about = "Show key sources and credential-store availability without revealing secrets")]
+    KeyStatus,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1057,7 +1061,22 @@ pub enum TotpAlgorithmArg {
 
 #[derive(Debug, Subcommand)]
 pub enum JwtCommand {
+    #[command(about = "Inspect a JWT without verifying its signature")]
     Decode(InputOptions),
+    #[command(about = "Sign JSON claims with HS256 (separate JWT secret)")]
+    Sign {
+        #[command(flatten)]
+        secret: SecretOptions,
+        #[command(flatten)]
+        input: InputOptions,
+    },
+    #[command(about = "Verify HS256 signature and exp/nbf claims")]
+    Verify {
+        #[command(flatten)]
+        secret: SecretOptions,
+        #[command(flatten)]
+        input: InputOptions,
+    },
 }
 #[derive(Debug, Subcommand)]
 pub enum ChecksumCommand {

@@ -3,6 +3,7 @@ use zeroize::Zeroizing;
 
 const SERVICE: &str = "dev.vutils.cli";
 const USER: &str = "last-encryption-key";
+const DEFAULT_USER: &str = "default-encryption-key";
 #[cfg(debug_assertions)]
 const DISABLE_ENV: &str = "VUTILS_TEST_DISABLE_KEYRING";
 
@@ -10,7 +11,7 @@ pub(crate) fn load() -> Result<Option<Zeroizing<Vec<u8>>>, String> {
     if disabled_for_tests() {
         return Ok(None);
     }
-    load_from(&SystemEntry(entry()?))
+    load_preferred(&SystemEntry(default_entry()?), &SystemEntry(entry()?))
 }
 
 pub(crate) fn remember(secret: &[u8]) -> Result<(), String> {
@@ -24,11 +25,39 @@ pub(crate) fn forget() -> Result<bool, String> {
     if disabled_for_tests() {
         return Ok(false);
     }
-    forget_from(&SystemEntry(entry()?))
+    let removed_default = forget_from(&SystemEntry(default_entry()?))?;
+    let removed_last = forget_from(&SystemEntry(entry()?))?;
+    Ok(removed_default || removed_last)
+}
+
+pub(crate) fn save_default(secret: &[u8]) -> Result<(), String> {
+    if secret.is_empty() {
+        return Err("the default encryption key must not be empty".into());
+    }
+    if disabled_for_tests() {
+        return Err("credential store disabled for tests".into());
+    }
+    let entry = SystemEntry(default_entry()?);
+    remember_in(&entry, secret)?;
+    match load_from(&entry)? {
+        Some(saved) if saved.as_slice() == secret => Ok(()),
+        _ => Err("credential store did not retain the default encryption key".into()),
+    }
+}
+
+fn default_entry() -> Result<Entry, String> {
+    system_entry(DEFAULT_USER)
 }
 
 fn entry() -> Result<Entry, String> {
-    Entry::new(SERVICE, USER)
+    system_entry(USER)
+}
+
+fn system_entry(username: &str) -> Result<Entry, String> {
+    Entry::store_status().as_ref().map_err(|error| {
+        format!("cannot initialize the operating-system credential store: {error}; unlock the desktop keyring or configure crypto.password-file/crypto.password-env")
+    })?;
+    Entry::new(SERVICE, username)
         .map_err(|error| format!("cannot access the operating-system credential store: {error}"))
 }
 
@@ -74,6 +103,16 @@ fn map_store_error(error: Error) -> StoreError {
     match error {
         Error::NoEntry => StoreError::Missing,
         error => StoreError::Failure(error.to_string()),
+    }
+}
+
+fn load_preferred(
+    default: &impl CredentialEntry,
+    last: &impl CredentialEntry,
+) -> Result<Option<Zeroizing<Vec<u8>>>, String> {
+    match load_from(default)? {
+        Some(key) => Ok(Some(key)),
+        None => load_from(last),
     }
 }
 
@@ -147,4 +186,18 @@ mod tests {
         assert!(forget_from(&entry).unwrap());
         assert!(!forget_from(&entry).unwrap());
     }
+    #[test]
+    fn explicit_default_survives_other_successful_operations() {
+        let default = MemoryEntry::default();
+        let last = MemoryEntry::default();
+        remember_in(&last, b"old key").unwrap();
+        assert_eq!(load_preferred(&default, &last).unwrap().unwrap().as_slice(), b"old key");
+        remember_in(&default, b"pinned default").unwrap();
+        remember_in(&last, b"one-off override").unwrap();
+        assert_eq!(load_preferred(&default, &last).unwrap().unwrap().as_slice(), b"pinned default");
+        forget_from(&default).unwrap();
+        forget_from(&last).unwrap();
+        assert!(load_preferred(&default, &last).unwrap().is_none());
+    }
+
 }

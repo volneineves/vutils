@@ -912,3 +912,52 @@ fn brazilian_profile_help_generation_and_validation_are_cohesive() {
     assert!(!invalid.status.success());
     assert_eq!(invalid.stdout, b"invalid\n");
 }
+
+
+#[test]
+fn jwt_sign_verify_and_reject_invalid_signatures() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    let secret = "0123456789abcdef0123456789abcdef";
+    let signed = vutils_with_config(&config)
+        .env("JWT_TEST_SECRET", secret)
+        .args(["jwt", "sign", "--secret-env", "JWT_TEST_SECRET", r#"{"sub":"example","exp":4102444800}"#])
+        .output().unwrap();
+    assert!(signed.status.success(), "{}", String::from_utf8_lossy(&signed.stderr));
+    let token = String::from_utf8(signed.stdout).unwrap();
+    let verified = vutils_with_config(&config)
+        .env("JWT_TEST_SECRET", secret)
+        .args(["jwt", "verify", "--secret-env", "JWT_TEST_SECRET", token.trim()])
+        .output().unwrap();
+    assert!(verified.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&verified.stdout).unwrap();
+    assert_eq!(value["verified"], true);
+    assert_eq!(value["payload"]["sub"], "example");
+    let invalid = vutils_with_config(&config)
+        .args(["jwt", "verify", "--secret", "abcdef0123456789abcdef0123456789ab", token.trim()])
+        .output().unwrap();
+    assert!(!invalid.status.success());
+    assert!(invalid.stdout.is_empty());
+    let missing = vutils_with_config(&config)
+        .args(["jwt", "sign", "{}"]).output().unwrap();
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("JWT requires"));
+}
+
+#[test]
+fn saving_a_default_key_requires_explicit_source_and_reports_store_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = dir.path().join("config.toml");
+    let missing = vutils_with_config(&config)
+        .args(["config", "remember-key"]).output().unwrap();
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("provide --key"));
+    let unavailable = vutils_with_config(&config)
+        .args(["config", "remember-key", "--key", "example"]).output().unwrap();
+    assert!(!unavailable.status.success());
+    assert!(String::from_utf8_lossy(&unavailable.stderr).contains("disabled for tests"));
+    let status = vutils_with_config(&config)
+        .args(["config", "key-status"]).output().unwrap();
+    assert!(status.status.success());
+    assert!(String::from_utf8_lossy(&status.stdout).contains("saved key: not set"));
+}

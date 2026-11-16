@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add global TUI tool search with Ctrl-P (or / from operations) and allow F5/Ctrl-R while editing parameters.
+- Add explicit `config remember-key` and `config key-status`; a saved default survives one-off enc/dec keys. Report underlying credential-store initialization failures.
+- Add JWT HS256 signing and signature/temporal-claim verification in the CLI and TUI, with separate secrets and protected child-process arguments.
+
+
 All notable changes to this project are documented here. The format follows Keep a Changelog and the project uses Semantic Versioning.
 
 ## [Unreleased]

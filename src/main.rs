@@ -361,6 +361,14 @@ fn dispatch(command: Command, config: &UserConfig) -> Result<Outcome> {
             eprintln!("warning: JWT signature was not verified");
             text_out(security::decode_jwt(&read_text(&input)?)?, input)
         }
+        Command::Jwt(JwtCommand::Sign { secret, input }) => {
+            let key = read_jwt_secret(&secret)?;
+            text_out(security::sign_jwt(&read_text(&input)?, &key)?, input)
+        }
+        Command::Jwt(JwtCommand::Verify { secret, input }) => {
+            let key = read_jwt_secret(&secret)?;
+            text_out(security::verify_jwt(&read_text(&input)?, &key)?, input)
+        }
         Command::Checksum(command) => match command {
             ChecksumCommand::File { path, algorithm } => text_out(
                 security::checksum_file(&path, map_hash(algorithm))?,
@@ -472,6 +480,36 @@ fn dispatch_config(command: ConfigCommand) -> Result<Outcome> {
             let effective = config.get(&key).unwrap_or_else(|_| "<unset>".into());
             config.save()?;
             text_out(effective, InputOptions::default())
+        }
+        ConfigCommand::RememberKey(options) => {
+            if options.key.is_none() && options.key_file.is_none() && options.key_env.is_none() {
+                return Err(VutilsError::InvalidInput(
+                    "provide --key, --key-file, or --key-env to save a default key".into(),
+                ));
+            }
+            let config = UserConfig::load()?;
+            let key = read_encryption_key(options, &config)?;
+            key_store::save_default(&key).map_err(VutilsError::Message)?;
+            text_out(
+                "default encryption key saved; configured env/file sources still take precedence".into(),
+                InputOptions::default(),
+            )
+        }
+        ConfigCommand::KeyStatus => {
+            let config = UserConfig::load()?;
+            let source = if let Some(path) = config.password_file() {
+                format!("file: {}", path.display())
+            } else if let Some(name) = config.password_env() {
+                format!("environment: {name}")
+            } else {
+                "credential store".into()
+            };
+            let saved = match key_store::load() {
+                Ok(Some(_)) => "available".into(),
+                Ok(None) => "not set".into(),
+                Err(error) => format!("unavailable: {error}"),
+            };
+            text_out(format!("automatic source: {source}\nsaved key: {saved}"), InputOptions::default())
         }
         ConfigCommand::ForgetKey => {
             let message = if key_store::forget().map_err(VutilsError::Message)? {
@@ -1036,6 +1074,15 @@ fn map_input(input: &InputOptions) -> InputArgs {
     }
 }
 
+fn read_jwt_secret(options: &SecretOptions) -> Result<zeroize::Zeroizing<Vec<u8>>> {
+    if options.secret.is_none() && options.secret_file.is_none() && options.secret_env.is_none() {
+        return Err(VutilsError::InvalidInput(
+            "JWT requires --secret, --secret-file, or --secret-env; stdin is reserved for the token/claims".into(),
+        ));
+    }
+    Ok(zeroize::Zeroizing::new(read_secret(options)?))
+}
+
 fn read_secret(options: &SecretOptions) -> Result<Vec<u8>> {
     if let Some(value) = &options.secret {
         return Ok(value.as_bytes().to_vec());
@@ -1105,7 +1152,7 @@ fn read_encryption_key(
         }
     }
     Err(VutilsError::InvalidInput(
-        "provide an encryption key using --key, --key-file, --key-env (legacy aliases: --passwd, --passwd-file, --passwd-env), configure crypto.password-env/crypto.password-file, or first save a key with a successful enc/dec command".into(),
+        "provide an encryption key using --key, --key-file, --key-env (legacy aliases: --passwd, --passwd-file, --passwd-env), configure crypto.password-env/crypto.password-file, or save a default with config remember-key".into(),
     ))
 }
 

@@ -426,6 +426,84 @@ pub fn verify_totp(
     Ok(false)
 }
 
+/// Sign an object of JSON claims using HS256 and an explicit JWT secret.
+pub fn sign_jwt(claims: &str, secret: &[u8]) -> Result<String> {
+    validate_jwt_secret(secret)?;
+    let payload: serde_json::Value = serde_json::from_str(claims)
+        .map_err(|error| VutilsError::InvalidInput(format!("invalid JWT claims: {error}")))?;
+    if !payload.is_object() {
+        return Err(VutilsError::InvalidInput("JWT claims must be a JSON object".into()));
+    }
+    let encoder = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let header = encoder.encode(br#"{"alg":"HS256","typ":"JWT"}"#);
+    let payload = encoder.encode(serde_json::to_vec(&payload)
+        .map_err(|error| VutilsError::Message(error.to_string()))?);
+    let message = format!("{header}.{payload}");
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret)
+        .map_err(|_| VutilsError::InvalidInput("invalid JWT secret".into()))?;
+    mac.update(message.as_bytes());
+    Ok(format!("{message}.{}", encoder.encode(mac.finalize().into_bytes())))
+}
+
+/// Verify HS256 and temporal claims. Issuer/audience authorization is caller-specific.
+pub fn verify_jwt(token: &str, secret: &[u8]) -> Result<String> {
+    verify_jwt_at(token, secret, chrono::Utc::now().timestamp() as f64)
+}
+
+fn validate_jwt_secret(secret: &[u8]) -> Result<()> {
+    if secret.len() < 32 {
+        return Err(VutilsError::InvalidInput(
+            "HS256 requires a JWT secret of at least 32 bytes".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_jwt_at(token: &str, secret: &[u8], now: f64) -> Result<String> {
+    validate_jwt_secret(secret)?;
+    let token = token.trim();
+    let parts: Vec<_> = token.split('.').collect();
+    if parts.len() != 3 || parts.iter().any(|part| part.is_empty()) {
+        return Err(VutilsError::InvalidInput("JWT must contain header.payload.signature".into()));
+    }
+    let header = decode_jwt_part(parts[0], "header")?;
+    if header.get("alg").and_then(serde_json::Value::as_str) != Some("HS256") {
+        return Err(VutilsError::InvalidInput("only HS256 JWT signatures are supported".into()));
+    }
+    if header.get("crit").is_some() || header.get("b64").is_some() {
+        return Err(VutilsError::InvalidInput("JWT header extensions are not supported".into()));
+    }
+    let signature = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(parts[2])
+        .map_err(|error| VutilsError::InvalidInput(format!("invalid JWT signature: {error}")))?;
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret)
+        .map_err(|_| VutilsError::InvalidInput("invalid JWT secret".into()))?;
+    mac.update(format!("{}.{}", parts[0], parts[1]).as_bytes());
+    mac.verify_slice(&signature)
+        .map_err(|_| VutilsError::InvalidInput("JWT signature verification failed".into()))?;
+    let payload = decode_jwt_part(parts[1], "payload")?;
+    if !payload.is_object() {
+        return Err(VutilsError::InvalidInput("JWT claims must be a JSON object".into()));
+    }
+    for name in ["exp", "nbf", "iat"] {
+        if let Some(value) = payload.get(name) {
+            let value = value.as_f64().filter(|value| value.is_finite())
+                .ok_or_else(|| VutilsError::InvalidInput(format!("JWT {name} must be a numeric date")))?;
+            if name == "exp" && now >= value {
+                return Err(VutilsError::InvalidInput("JWT has expired".into()));
+            }
+            if name == "nbf" && now < value {
+                return Err(VutilsError::InvalidInput("JWT is not yet valid".into()));
+            }
+        }
+    }
+    serde_json::to_string_pretty(&serde_json::json!({
+        "verified": true,
+        "algorithm": "HS256",
+        "header": header,
+        "payload": payload
+    })).map_err(|error| VutilsError::Message(error.to_string()))
+}
+
 pub fn decode_jwt(token: &str) -> Result<String> {
     let parts: Vec<_> = token.trim().split('.').collect();
     if parts.len() != 3 {
@@ -447,7 +525,7 @@ pub fn decode_jwt(token: &str) -> Result<String> {
                 serde_json::json!({
                     "unix": value,
                     "rfc3339": formatted,
-                    "status": if name == "exp" && value < now { "expired" } else if name == "nbf" && value > now { "not-yet-valid" } else { "informational" }
+                    "status": if name == "exp" && value <= now { "expired" } else if name == "nbf" && value > now { "not-yet-valid" } else { "informational" }
                 }),
             );
         }
@@ -781,5 +859,38 @@ mod tests {
         let last = corrupted.last_mut().unwrap();
         *last = if *last == b'A' { b'B' } else { b'A' };
         assert!(decrypt(std::str::from_utf8(&corrupted).unwrap(), b"password", None).is_err());
+    }
+}
+
+#[cfg(test)]
+mod jwt_tests {
+    use super::*;
+
+    const SECRET: &[u8] = b"0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn jwt_matches_independent_hs256_fixture() {
+        let token = sign_jwt(r#"{"sub":"1234567890","name":"John Doe","iat":1516239022}"#, SECRET).unwrap();
+        assert_eq!(token, "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.FO08B83KharVEIjci1WakjzVdRNtQsmpsC7B7L8IkIU");
+        assert!(verify_jwt_at(&token, SECRET, 2_000_000_000.0).unwrap().contains("\"verified\": true"));
+        assert!(verify_jwt_at(&token, b"abcdef0123456789abcdef0123456789ab", 0.0).is_err());
+        let mut tampered = token;
+        tampered.replace_range(..1, "X");
+        assert!(verify_jwt_at(&tampered, SECRET, 0.0).is_err());
+    }
+
+    #[test]
+    fn jwt_rejects_expired_future_and_malformed_claims() {
+        for claims in [r#"{"exp":100}"#, r#"{"nbf":101}"#, r#"{"exp":"later"}"#, r#"{"iat":null}"#] {
+            let token = sign_jwt(claims, SECRET).unwrap();
+            assert!(verify_jwt_at(&token, SECRET, 100.0).is_err(), "{claims}");
+        }
+        let token = sign_jwt(r#"{"exp":100.5,"nbf":100}"#, SECRET).unwrap();
+        assert!(verify_jwt_at(&token, SECRET, 100.0).is_ok());
+        assert!(sign_jwt("[]", SECRET).is_err());
+        assert!(sign_jwt("{}", b"short").is_err());
+        assert!(verify_jwt_at("eyJhbGciOiJub25lIn0.e30.", SECRET, 0.0).is_err());
+        assert!(verify_jwt_at("eyJhbGciOiJub25lIn0.e30.AA", SECRET, 0.0).is_err());
+        assert!(verify_jwt_at("a.b.c.d", SECRET, 0.0).is_err());
     }
 }
